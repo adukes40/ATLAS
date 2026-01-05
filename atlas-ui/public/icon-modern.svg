@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Modern Icon - Simplified "A" with location dot -->
+
+  <!-- Bold "A" -->
+  <path d="M32 8 L54 56 L46 56 L40 42 L24 42 L18 56 L10 56 L32 8 Z M32 22 L26 36 L38 36 L32 22 Z" fill="#000098"/>
+
+  <!-- Gold accent dot -->
+  <circle cx="32" cy="32" r="5" fill="#fcbe14"/>
+</svg>

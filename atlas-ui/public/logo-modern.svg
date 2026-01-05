@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- Modern/Minimal ATLAS Logo - Clean geometric "A" with location pin accent -->
+
+  <!-- Main "A" shape - bold and minimal -->
+  <path d="M100 20 L160 170 L140 170 L125 130 L75 130 L60 170 L40 170 L100 20 Z M100 60 L82 110 L118 110 L100 60 Z" fill="#000098"/>
+
+  <!-- Location pin dot - representing device tracking -->
+  <circle cx="100" cy="95" r="12" fill="#fcbe14"/>
+
+  <!-- Subtle arc below "A" suggesting global/network reach -->
+  <path d="M50 175 Q100 190 150 175" stroke="#fcbe14" stroke-width="4" fill="none" stroke-linecap="round"/>
+</svg>

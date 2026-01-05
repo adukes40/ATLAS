@@ -1,0 +1,46 @@
+# Claude AI files
+CLAUDE.md
+
+# Environment files with secrets
+.env
+.env.*
+!.env.example
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+*.egg-info/
+
+# Node.js
+node_modules/
+dist/
+.vite/
+
+# Logs
+logs/
+*.log
+
+# Credentials
+credentials/
+google_credentials.json
+*_credentials.json
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backups
+backups/
+*.bak

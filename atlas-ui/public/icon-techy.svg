@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Techy Icon - Circuit-style "A" with nodes -->
+
+  <!-- "A" outline -->
+  <path d="M32 8 L52 56 L44 56 L38 42 L26 42 L20 56 L12 56 L32 8 Z"
+        fill="none" stroke="#000098" stroke-width="4" stroke-linejoin="round"/>
+
+  <!-- Crossbar -->
+  <line x1="24" y1="38" x2="40" y2="38" stroke="#000098" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Corner nodes -->
+  <circle cx="32" cy="8" r="4" fill="#fcbe14"/>
+  <circle cx="12" cy="56" r="4" fill="#fcbe14"/>
+  <circle cx="52" cy="56" r="4" fill="#fcbe14"/>
+
+  <!-- Center hub -->
+  <circle cx="32" cy="30" r="6" fill="#fcbe14"/>
+</svg>

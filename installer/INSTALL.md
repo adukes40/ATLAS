@@ -115,21 +115,48 @@ All IIQ credentials are found at **Admin > Developer Tools**:
 - **Instance URL**: Your IIQ URL (e.g., `https://yourdistrict.incidentiq.com`)
 - **Site ID**: Displayed on the Developer Tools page
 - **API Token**: Click "Create Token" on the Developer Tools page
-- **Product ID**: Listed on the Developer Tools page
-  - Default for Chromebooks: `88df910c-91aa-e711-80c2-0004ffa00050`
-- **Fee Field ID** (optional): Custom field UUID for fee tracking
-  - Find at Admin > Custom Fields > click Fee Tracker field > copy ID from browser URL
+- **Product ID**: Listed on the Developer Tools page (for filtering to Chromebooks)
 
-#### 2. Google Workspace
-- **Service Account JSON**: Create in Google Cloud Console
-  - Enable the Admin SDK Directory API
-  - Create a Service Account with domain-wide delegation
-  - Download the JSON key file
+#### 2. Google Workspace - Service Account (for data sync)
+Create a service account for syncing device and user data:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create a new project or select existing
+3. Enable **Admin SDK API**: APIs & Services > Enable APIs > Search "Admin SDK" > Enable
+4. Create Service Account: IAM & Admin > Service Accounts > Create
+5. Download JSON key file
+6. Enable Domain-Wide Delegation:
+   - Go to [Google Admin Console](https://admin.google.com) > Security > API Controls > Domain-wide delegation
+   - Add new API client with the service account's Client ID
+   - Add scopes:
+     ```
+     https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly
+     https://www.googleapis.com/auth/admin.directory.user.readonly
+     https://www.googleapis.com/auth/admin.directory.group.member.readonly
+     ```
 - **Admin Email**: A super admin email for delegation (e.g., `admin@yourdistrict.org`)
 
-#### 3. Cisco Meraki
+#### 3. Google Workspace - OAuth Client (for user authentication)
+Create OAuth credentials for user login:
+
+1. In Google Cloud Console > APIs & Services > Credentials
+2. Create OAuth 2.0 Client ID (Web application type)
+3. Add authorized redirect URI: `http://atlas.yourdistrict.org/auth/callback`
+4. Note the **Client ID** and **Client Secret**
+5. Configure OAuth consent screen:
+   - User type: Internal (restricts to your domain)
+   - Add your domain to authorized domains
+
+#### 4. Cisco Meraki
 - **API Key**: Generate in Meraki Dashboard > Organization > Settings > API Access
 - **Organization ID**: Found in the Meraki Dashboard URL or API
+
+#### 5. Create Access Control Group
+Create a Google Group to control who can access ATLAS:
+1. Go to Google Admin Console > Groups
+2. Create a group (e.g., `atlas-users@yourdistrict.org`)
+3. Add IT staff who should have access
+4. Use this group email in `REQUIRED_GROUP` environment variable
 
 ---
 
@@ -182,39 +209,59 @@ EOF
 ### Step 6: Create Environment File
 ```bash
 cat > /opt/atlas/atlas-backend/.env << EOF
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=atlas
-DB_USER=atlas
-DB_PASSWORD=your_secure_password
+# =============================================================================
+# DATABASE
+# =============================================================================
+DATABASE_URL=postgresql://atlas:your_secure_password@localhost/atlas
 
-# IIQ API
-IIQ_BASE_URL=https://yourdistrict.incidentiq.com
-IIQ_SITE_ID=your_site_id
+# =============================================================================
+# INCIDENT IQ (IIQ) API
+# Get these from: IIQ Admin > Developer Tools
+# =============================================================================
+IIQ_URL=https://yourdistrict.incidentiq.com
 IIQ_TOKEN=your_api_token
-IIQ_PRODUCT_ID=88df910c-91aa-e711-80c2-0004ffa00050
-IIQ_FEE_FIELD_ID=your_fee_field_id_or_leave_empty
+IIQ_SITE_ID=your_site_id
+IIQ_PRODUCT_ID=your_product_id
 
-# Google API
-GOOGLE_CREDENTIALS_FILE=/opt/atlas/atlas-backend/credentials/google-service-account.json
+# =============================================================================
+# GOOGLE WORKSPACE API
+# =============================================================================
+GOOGLE_CREDS_PATH=/opt/atlas/atlas-backend/google_credentials.json
 GOOGLE_ADMIN_EMAIL=admin@yourdistrict.org
 
-# Meraki API
+# =============================================================================
+# CISCO MERAKI API
+# =============================================================================
 MERAKI_API_KEY=your_meraki_key
 MERAKI_ORG_ID=your_org_id
 
-# Server
-ATLAS_DOMAIN=atlas.yourdistrict.org
-ALLOWED_ORIGINS=http://atlas.yourdistrict.org,https://atlas.yourdistrict.org
-ENVIRONMENT=production
+# =============================================================================
+# SECURITY & AUTHENTICATION
+# =============================================================================
+# Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+SECRET_KEY=your_generated_secret_key
+
+# Domain restriction for Google OAuth
+ALLOWED_DOMAIN=yourdistrict.org
+
+# Google Group that grants access to ATLAS (users must be members)
+REQUIRED_GROUP=atlas-users@yourdistrict.org
+
+# =============================================================================
+# GOOGLE OAUTH (Get from Google Cloud Console)
+# =============================================================================
+GOOGLE_OAUTH_CLIENT_ID=your_client_id.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=your_client_secret
 EOF
+
+# Set secure permissions
+chmod 600 /opt/atlas/atlas-backend/.env
 ```
 
 ### Step 7: Copy Google Service Account Credentials
 ```bash
-cp /path/to/your/service-account.json /opt/atlas/atlas-backend/credentials/google-service-account.json
-chmod 600 /opt/atlas/atlas-backend/credentials/google-service-account.json
+cp /path/to/your/service-account.json /opt/atlas/atlas-backend/google_credentials.json
+chmod 600 /opt/atlas/atlas-backend/google_credentials.json
 ```
 
 ### Step 8: Set Up Python Virtual Environment
@@ -226,7 +273,7 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install fastapi uvicorn[standard] sqlalchemy psycopg2-binary \
   python-dotenv httpx google-api-python-client google-auth meraki \
-  python-multipart aiofiles
+  python-multipart aiofiles authlib itsdangerous slowapi
 ```
 
 ### Step 9: Build the Frontend
@@ -269,11 +316,18 @@ server {
     listen 80;
     server_name atlas.yourdistrict.org;
 
+    # Security headers
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    # Frontend (static files)
     location / {
         root /opt/atlas/atlas-ui/dist;
         try_files $uri $uri/ /index.html;
     }
 
+    # API endpoints
     location /api {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -282,6 +336,16 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 300s;
+    }
+
+    # Authentication endpoints (Google OAuth)
+    location /auth {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 EOF
@@ -328,6 +392,10 @@ After installation, run the initial sync to populate your database:
 ```bash
 certbot --nginx -d atlas.yourdistrict.org
 ```
+
+After enabling HTTPS, update your `.env` file:
+- Change `GOOGLE_OAUTH_CLIENT_ID` redirect URI to use `https://`
+- Update the OAuth credentials in Google Cloud Console to include the HTTPS callback URL
 
 ### Verify Installation
 
@@ -377,6 +445,45 @@ tail -f /var/log/nginx/error.log
 1. Verify backend is running: `systemctl status atlas`
 2. Check if port 8000 is listening: `netstat -tlnp | grep 8000`
 3. Review nginx error log: `tail /var/log/nginx/error.log`
+
+#### Authentication Issues
+1. Verify OAuth credentials in `.env` are correct
+2. Check redirect URI matches Google Cloud Console exactly
+3. Ensure user is a member of the `REQUIRED_GROUP`
+4. Verify service account has group membership scope
+
+---
+
+## Security Configuration
+
+### File Permissions
+Ensure sensitive files are protected:
+```bash
+chmod 600 /opt/atlas/atlas-backend/.env
+chmod 600 /opt/atlas/atlas-backend/google_credentials.json
+```
+
+### Secret Files
+The following files contain sensitive credentials and should NEVER be committed to git:
+- `.env` - API keys, tokens, database credentials
+- `google_credentials.json` - Google service account private key
+
+### Authentication Flow
+ATLAS uses Google OAuth 2.0 with group-based authorization:
+1. User clicks "Sign in with Google"
+2. Google authenticates the user (must be from your domain)
+3. Backend verifies user is a member of the required Google Group
+4. If authorized, a session is created
+
+### Rotating Credentials
+If you suspect credentials have been compromised:
+1. **IIQ Token**: Generate new token at IIQ Admin > Developer Tools
+2. **Meraki API Key**: Generate new key in Meraki Dashboard
+3. **Database Password**: Change in PostgreSQL and update `.env`
+4. **Google Service Account**: Create new key in Google Cloud Console
+5. **SECRET_KEY**: Generate new value with `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+
+After rotating, restart the service: `systemctl restart atlas`
 
 ---
 

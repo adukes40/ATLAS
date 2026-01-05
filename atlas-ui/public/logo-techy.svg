@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- Techy ATLAS Logo - "A" with circuit/network node design -->
+
+  <!-- Circuit board traces background -->
+  <g stroke="#000098" stroke-width="2" fill="none" opacity="0.3">
+    <line x1="30" y1="100" x2="50" y2="100"/>
+    <line x1="150" y1="100" x2="170" y2="100"/>
+    <line x1="100" y1="30" x2="100" y2="45"/>
+    <line x1="60" y1="160" x2="45" y2="175"/>
+    <line x1="140" y1="160" x2="155" y2="175"/>
+  </g>
+
+  <!-- Main "A" frame - tech/angular style -->
+  <path d="M100 25 L155 165 L145 165 L130 125 L70 125 L55 165 L45 165 L100 25 Z"
+        fill="none" stroke="#000098" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- Crossbar as circuit trace -->
+  <line x1="72" y1="115" x2="128" y2="115" stroke="#000098" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Network nodes at key points -->
+  <circle cx="100" cy="25" r="6" fill="#fcbe14"/>
+  <circle cx="45" cy="165" r="6" fill="#fcbe14"/>
+  <circle cx="155" cy="165" r="6" fill="#fcbe14"/>
+
+  <!-- Central processor/hub node -->
+  <circle cx="100" cy="95" r="15" fill="#000098"/>
+  <circle cx="100" cy="95" r="8" fill="#fcbe14"/>
+
+  <!-- Data connection lines from center -->
+  <g stroke="#fcbe14" stroke-width="2">
+    <line x1="100" y1="80" x2="100" y2="55"/>
+    <line x1="88" y1="102" x2="72" y2="115"/>
+    <line x1="112" y1="102" x2="128" y2="115"/>
+  </g>
+
+  <!-- Small circuit nodes -->
+  <circle cx="100" cy="55" r="4" fill="#fcbe14"/>
+  <circle cx="72" cy="115" r="4" fill="#fcbe14"/>
+  <circle cx="128" cy="115" r="4" fill="#fcbe14"/>
+</svg>
