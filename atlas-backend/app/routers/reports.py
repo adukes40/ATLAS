@@ -13,7 +13,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.database import get_db
-from app.models import IIQAsset, IIQUser, GoogleDevice, GoogleUser, NetworkCache
+from app.models import IIQAsset, IIQUser, GoogleDevice, GoogleUser, NetworkCache, MerakiDevice, MerakiNetwork, MerakiSSID
 from app.auth import get_current_user
 
 
@@ -1387,3 +1387,470 @@ def export_custom_report_csv(
         data.append(row_dict)
 
     return stream_csv(data, csv_columns, f"custom_{source}_{datetime.now().strftime('%Y%m%d')}.csv")
+
+
+# =============================================================================
+# REPORT 6: MERAKI INFRASTRUCTURE INVENTORY
+# =============================================================================
+
+@router.get("/infrastructure-inventory")
+@limiter.limit("20/minute")
+def get_infrastructure_inventory(
+    request: Request,
+    product_type: Optional[str] = None,
+    product_type_exclude: Optional[str] = None,
+    network: Optional[str] = None,
+    network_exclude: Optional[str] = None,
+    status: Optional[str] = None,
+    status_exclude: Optional[str] = None,
+    model: Optional[str] = None,
+    model_exclude: Optional[str] = None,
+    search: Optional[str] = None,
+    sort: str = "name",
+    order: str = "asc",
+    page: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """
+    Infrastructure Inventory Report - All Meraki network devices (APs, switches).
+    """
+    query = db.query(
+        MerakiDevice.serial,
+        MerakiDevice.name,
+        MerakiDevice.model,
+        MerakiDevice.product_type,
+        MerakiDevice.status,
+        MerakiDevice.mac,
+        MerakiDevice.lan_ip,
+        MerakiDevice.firmware,
+        MerakiDevice.tags,
+        MerakiNetwork.name.label('network_name'),
+        MerakiDevice.last_updated
+    ).outerjoin(
+        MerakiNetwork, MerakiDevice.network_id == MerakiNetwork.network_id
+    )
+
+    # Apply filters
+    product_type_list = parse_multi_filter(product_type)
+    if product_type_list:
+        if product_type_exclude == 'true':
+            query = query.filter(~MerakiDevice.product_type.in_(product_type_list))
+        else:
+            query = query.filter(MerakiDevice.product_type.in_(product_type_list))
+
+    network_list = parse_multi_filter(network)
+    if network_list:
+        if network_exclude == 'true':
+            query = query.filter(~MerakiNetwork.name.in_(network_list))
+        else:
+            query = query.filter(MerakiNetwork.name.in_(network_list))
+
+    status_list = parse_multi_filter(status)
+    if status_list:
+        if status_exclude == 'true':
+            query = query.filter(~MerakiDevice.status.in_(status_list))
+        else:
+            query = query.filter(MerakiDevice.status.in_(status_list))
+
+    model_list = parse_multi_filter(model)
+    if model_list:
+        if model_exclude == 'true':
+            query = query.filter(~MerakiDevice.model.in_(model_list))
+        else:
+            query = query.filter(MerakiDevice.model.in_(model_list))
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(or_(
+            MerakiDevice.serial.ilike(search_term),
+            MerakiDevice.name.ilike(search_term),
+            MerakiDevice.model.ilike(search_term),
+            MerakiDevice.mac.ilike(search_term)
+        ))
+
+    total = query.count()
+
+    # Apply sorting
+    sort_map = {
+        "serial": MerakiDevice.serial,
+        "name": MerakiDevice.name,
+        "model": MerakiDevice.model,
+        "product_type": MerakiDevice.product_type,
+        "status": MerakiDevice.status,
+        "mac": MerakiDevice.mac,
+        "lan_ip": MerakiDevice.lan_ip,
+        "firmware": MerakiDevice.firmware,
+        "network_name": MerakiNetwork.name,
+        "last_updated": MerakiDevice.last_updated
+    }
+    sort_col = sort_map.get(sort, MerakiDevice.name)
+    if order.lower() == "desc":
+        query = query.order_by(desc(sort_col))
+    else:
+        query = query.order_by(asc(sort_col))
+
+    results = query.offset(page * limit).limit(limit).all()
+
+    data = [{
+        "serial": r.serial,
+        "name": r.name or r.serial,
+        "model": r.model,
+        "product_type": r.product_type,
+        "status": r.status,
+        "mac": r.mac,
+        "lan_ip": r.lan_ip,
+        "firmware": r.firmware,
+        "tags": r.tags,
+        "network_name": r.network_name,
+        "last_updated": r.last_updated.isoformat() if r.last_updated else None
+    } for r in results]
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": (total + limit - 1) // limit,
+        "data": data
+    }
+
+
+@router.get("/infrastructure-inventory/export/csv")
+@limiter.limit("10/minute")
+def export_infrastructure_inventory_csv(
+    request: Request,
+    product_type: Optional[str] = None,
+    product_type_exclude: Optional[str] = None,
+    network: Optional[str] = None,
+    network_exclude: Optional[str] = None,
+    status: Optional[str] = None,
+    status_exclude: Optional[str] = None,
+    model: Optional[str] = None,
+    model_exclude: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Export Infrastructure Inventory report to CSV."""
+    query = db.query(
+        MerakiDevice.serial,
+        MerakiDevice.name,
+        MerakiDevice.model,
+        MerakiDevice.product_type,
+        MerakiDevice.status,
+        MerakiDevice.mac,
+        MerakiDevice.lan_ip,
+        MerakiDevice.firmware,
+        MerakiDevice.tags,
+        MerakiNetwork.name.label('network_name'),
+        MerakiDevice.last_updated
+    ).outerjoin(
+        MerakiNetwork, MerakiDevice.network_id == MerakiNetwork.network_id
+    )
+
+    # Apply filters
+    product_type_list = parse_multi_filter(product_type)
+    if product_type_list:
+        if product_type_exclude == 'true':
+            query = query.filter(~MerakiDevice.product_type.in_(product_type_list))
+        else:
+            query = query.filter(MerakiDevice.product_type.in_(product_type_list))
+
+    network_list = parse_multi_filter(network)
+    if network_list:
+        if network_exclude == 'true':
+            query = query.filter(~MerakiNetwork.name.in_(network_list))
+        else:
+            query = query.filter(MerakiNetwork.name.in_(network_list))
+
+    status_list = parse_multi_filter(status)
+    if status_list:
+        if status_exclude == 'true':
+            query = query.filter(~MerakiDevice.status.in_(status_list))
+        else:
+            query = query.filter(MerakiDevice.status.in_(status_list))
+
+    model_list = parse_multi_filter(model)
+    if model_list:
+        if model_exclude == 'true':
+            query = query.filter(~MerakiDevice.model.in_(model_list))
+        else:
+            query = query.filter(MerakiDevice.model.in_(model_list))
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(or_(
+            MerakiDevice.serial.ilike(search_term),
+            MerakiDevice.name.ilike(search_term),
+            MerakiDevice.model.ilike(search_term)
+        ))
+
+    results = query.order_by(MerakiDevice.name).all()
+
+    data = [{
+        "Serial": r.serial,
+        "Name": r.name or r.serial,
+        "Model": r.model,
+        "Type": r.product_type,
+        "Status": r.status,
+        "MAC": r.mac,
+        "LAN IP": r.lan_ip,
+        "Firmware": r.firmware,
+        "Tags": r.tags,
+        "Network": r.network_name,
+        "Last Updated": r.last_updated.strftime("%Y-%m-%d %H:%M:%S") if r.last_updated else ""
+    } for r in results]
+
+    columns = ["Serial", "Name", "Model", "Type", "Status", "MAC", "LAN IP", "Firmware", "Tags", "Network", "Last Updated"]
+    return stream_csv(data, columns, f"infrastructure_inventory_{datetime.now().strftime('%Y%m%d')}.csv")
+
+
+# =============================================================================
+# REPORT 7: FIRMWARE COMPLIANCE
+# =============================================================================
+
+@router.get("/firmware-compliance")
+@limiter.limit("20/minute")
+def get_firmware_compliance(
+    request: Request,
+    product_type: Optional[str] = None,
+    product_type_exclude: Optional[str] = None,
+    model: Optional[str] = None,
+    model_exclude: Optional[str] = None,
+    firmware: Optional[str] = None,
+    firmware_exclude: Optional[str] = None,
+    network: Optional[str] = None,
+    network_exclude: Optional[str] = None,
+    search: Optional[str] = None,
+    sort: str = "model",
+    order: str = "asc",
+    page: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """
+    Firmware Compliance Report - Devices grouped by model and firmware version.
+    Shows which devices are on what firmware to identify update needs.
+    """
+    query = db.query(
+        MerakiDevice.serial,
+        MerakiDevice.name,
+        MerakiDevice.model,
+        MerakiDevice.product_type,
+        MerakiDevice.firmware,
+        MerakiDevice.status,
+        MerakiNetwork.name.label('network_name'),
+        MerakiDevice.last_updated
+    ).outerjoin(
+        MerakiNetwork, MerakiDevice.network_id == MerakiNetwork.network_id
+    )
+
+    # Apply filters
+    product_type_list = parse_multi_filter(product_type)
+    if product_type_list:
+        if product_type_exclude == 'true':
+            query = query.filter(~MerakiDevice.product_type.in_(product_type_list))
+        else:
+            query = query.filter(MerakiDevice.product_type.in_(product_type_list))
+
+    model_list = parse_multi_filter(model)
+    if model_list:
+        if model_exclude == 'true':
+            query = query.filter(~MerakiDevice.model.in_(model_list))
+        else:
+            query = query.filter(MerakiDevice.model.in_(model_list))
+
+    firmware_list = parse_multi_filter(firmware)
+    if firmware_list:
+        if firmware_exclude == 'true':
+            query = query.filter(~MerakiDevice.firmware.in_(firmware_list))
+        else:
+            query = query.filter(MerakiDevice.firmware.in_(firmware_list))
+
+    network_list = parse_multi_filter(network)
+    if network_list:
+        if network_exclude == 'true':
+            query = query.filter(~MerakiNetwork.name.in_(network_list))
+        else:
+            query = query.filter(MerakiNetwork.name.in_(network_list))
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(or_(
+            MerakiDevice.serial.ilike(search_term),
+            MerakiDevice.name.ilike(search_term),
+            MerakiDevice.model.ilike(search_term),
+            MerakiDevice.firmware.ilike(search_term)
+        ))
+
+    total = query.count()
+
+    # Apply sorting
+    sort_map = {
+        "serial": MerakiDevice.serial,
+        "name": MerakiDevice.name,
+        "model": MerakiDevice.model,
+        "product_type": MerakiDevice.product_type,
+        "firmware": MerakiDevice.firmware,
+        "status": MerakiDevice.status,
+        "network_name": MerakiNetwork.name,
+        "last_updated": MerakiDevice.last_updated
+    }
+    sort_col = sort_map.get(sort, MerakiDevice.model)
+    if order.lower() == "desc":
+        query = query.order_by(desc(sort_col))
+    else:
+        query = query.order_by(asc(sort_col))
+
+    results = query.offset(page * limit).limit(limit).all()
+
+    data = [{
+        "serial": r.serial,
+        "name": r.name or r.serial,
+        "model": r.model,
+        "product_type": r.product_type,
+        "firmware": r.firmware,
+        "status": r.status,
+        "network_name": r.network_name,
+        "last_updated": r.last_updated.isoformat() if r.last_updated else None
+    } for r in results]
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": (total + limit - 1) // limit,
+        "data": data
+    }
+
+
+@router.get("/firmware-compliance/export/csv")
+@limiter.limit("10/minute")
+def export_firmware_compliance_csv(
+    request: Request,
+    product_type: Optional[str] = None,
+    product_type_exclude: Optional[str] = None,
+    model: Optional[str] = None,
+    model_exclude: Optional[str] = None,
+    firmware: Optional[str] = None,
+    firmware_exclude: Optional[str] = None,
+    network: Optional[str] = None,
+    network_exclude: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Export Firmware Compliance report to CSV."""
+    query = db.query(
+        MerakiDevice.serial,
+        MerakiDevice.name,
+        MerakiDevice.model,
+        MerakiDevice.product_type,
+        MerakiDevice.firmware,
+        MerakiDevice.status,
+        MerakiNetwork.name.label('network_name'),
+        MerakiDevice.last_updated
+    ).outerjoin(
+        MerakiNetwork, MerakiDevice.network_id == MerakiNetwork.network_id
+    )
+
+    # Apply filters
+    product_type_list = parse_multi_filter(product_type)
+    if product_type_list:
+        if product_type_exclude == 'true':
+            query = query.filter(~MerakiDevice.product_type.in_(product_type_list))
+        else:
+            query = query.filter(MerakiDevice.product_type.in_(product_type_list))
+
+    model_list = parse_multi_filter(model)
+    if model_list:
+        if model_exclude == 'true':
+            query = query.filter(~MerakiDevice.model.in_(model_list))
+        else:
+            query = query.filter(MerakiDevice.model.in_(model_list))
+
+    firmware_list = parse_multi_filter(firmware)
+    if firmware_list:
+        if firmware_exclude == 'true':
+            query = query.filter(~MerakiDevice.firmware.in_(firmware_list))
+        else:
+            query = query.filter(MerakiDevice.firmware.in_(firmware_list))
+
+    network_list = parse_multi_filter(network)
+    if network_list:
+        if network_exclude == 'true':
+            query = query.filter(~MerakiNetwork.name.in_(network_list))
+        else:
+            query = query.filter(MerakiNetwork.name.in_(network_list))
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(or_(
+            MerakiDevice.serial.ilike(search_term),
+            MerakiDevice.name.ilike(search_term),
+            MerakiDevice.model.ilike(search_term),
+            MerakiDevice.firmware.ilike(search_term)
+        ))
+
+    results = query.order_by(MerakiDevice.model, MerakiDevice.firmware).all()
+
+    data = [{
+        "Serial": r.serial,
+        "Name": r.name or r.serial,
+        "Model": r.model,
+        "Type": r.product_type,
+        "Firmware": r.firmware,
+        "Status": r.status,
+        "Network": r.network_name,
+        "Last Updated": r.last_updated.strftime("%Y-%m-%d %H:%M:%S") if r.last_updated else ""
+    } for r in results]
+
+    columns = ["Serial", "Name", "Model", "Type", "Firmware", "Status", "Network", "Last Updated"]
+    return stream_csv(data, columns, f"firmware_compliance_{datetime.now().strftime('%Y%m%d')}.csv")
+
+
+# =============================================================================
+# MERAKI FILTER OPTIONS
+# =============================================================================
+
+@router.get("/filters/meraki-options")
+@limiter.limit("30/minute")
+def get_meraki_filter_options(request: Request, db: Session = Depends(get_db)):
+    """
+    Returns available filter options for Meraki reports.
+    """
+    # Get unique product types
+    product_types = db.query(MerakiDevice.product_type).filter(
+        MerakiDevice.product_type.isnot(None)
+    ).distinct().all()
+    product_types = sorted([pt[0] for pt in product_types if pt[0]])
+
+    # Get unique networks
+    networks = db.query(MerakiNetwork.name).filter(
+        MerakiNetwork.name.isnot(None)
+    ).distinct().all()
+    networks = sorted([n[0] for n in networks if n[0]])
+
+    # Get unique device statuses
+    statuses = db.query(MerakiDevice.status).filter(
+        MerakiDevice.status.isnot(None)
+    ).distinct().all()
+    statuses = sorted([s[0] for s in statuses if s[0]])
+
+    # Get unique models
+    models = db.query(MerakiDevice.model).filter(
+        MerakiDevice.model.isnot(None)
+    ).distinct().all()
+    models = sorted([m[0] for m in models if m[0]])
+
+    # Get unique firmware versions
+    firmwares = db.query(MerakiDevice.firmware).filter(
+        MerakiDevice.firmware.isnot(None)
+    ).distinct().all()
+    firmwares = sorted([f[0] for f in firmwares if f[0]])
+
+    return {
+        "product_types": product_types,
+        "networks": networks,
+        "statuses": statuses,
+        "models": models,
+        "firmwares": firmwares
+    }

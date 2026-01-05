@@ -6,7 +6,10 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.database import get_db
-from app.models import IIQAsset, IIQUser, GoogleDevice, NetworkCache, CachedStats
+from app.models import (
+    IIQAsset, IIQUser, GoogleDevice, NetworkCache, CachedStats,
+    MerakiNetwork, MerakiDevice, MerakiSSID, MerakiClient
+)
 from app.auth import get_current_user
 
 
@@ -370,68 +373,229 @@ def get_iiq_ticket_stats(request: Request, db: Session = Depends(get_db)):
 @limiter.limit("30/minute")
 def get_meraki_stats(request: Request, db: Session = Depends(get_db)):
     """
-    Returns Meraki network statistics.
-    Note: Network data is populated on-demand from Device 360 lookups,
-    not through bulk sync. Shows cached client data from recent searches.
+    Returns comprehensive Meraki infrastructure and client statistics.
+    Data is synced nightly from Meraki Dashboard API.
     """
-    total = db.query(func.count(NetworkCache.mac_address)).scalar() or 0
+    from sqlalchemy import text
 
-    # Unique AP count
-    unique_aps = db.query(func.count(func.distinct(NetworkCache.last_ap_name))).filter(
-        NetworkCache.last_ap_name.isnot(None)
+    # ============ INFRASTRUCTURE STATS ============
+
+    # Total devices by product type
+    total_aps = db.query(func.count(MerakiDevice.serial)).filter(
+        MerakiDevice.product_type == "wireless"
     ).scalar() or 0
 
-    # Unique SSID count
-    unique_ssids = db.query(func.count(func.distinct(NetworkCache.ssid))).filter(
-        NetworkCache.ssid.isnot(None)
+    total_switches = db.query(func.count(MerakiDevice.serial)).filter(
+        MerakiDevice.product_type == "switch"
     ).scalar() or 0
 
-    # AP breakdown (top 10)
-    ap_counts = db.query(
-        NetworkCache.last_ap_name,
-        func.count(NetworkCache.mac_address).label('count')
-    ).filter(
-        NetworkCache.last_ap_name.isnot(None)
-    ).group_by(
-        NetworkCache.last_ap_name
-    ).order_by(
-        func.count(NetworkCache.mac_address).desc()
-    ).limit(10).all()
+    # Status breakdown
+    devices_online = db.query(func.count(MerakiDevice.serial)).filter(
+        MerakiDevice.status == "online"
+    ).scalar() or 0
 
-    aps = [{"name": ap or "Unknown", "count": count} for ap, count in ap_counts]
+    devices_dormant = db.query(func.count(MerakiDevice.serial)).filter(
+        MerakiDevice.status == "dormant"
+    ).scalar() or 0
 
-    # SSID breakdown
+    devices_offline = db.query(func.count(MerakiDevice.serial)).filter(
+        MerakiDevice.status == "offline"
+    ).scalar() or 0
+
+    # Network count
+    total_networks = db.query(func.count(MerakiNetwork.network_id)).scalar() or 0
+
+    # ============ CLIENT STATS ============
+
+    total_clients = db.query(func.count(MerakiClient.mac)).scalar() or 0
+
+    # Clients by SSID
     ssid_counts = db.query(
-        NetworkCache.ssid,
-        func.count(NetworkCache.mac_address).label('count')
+        MerakiClient.last_ssid,
+        func.count(MerakiClient.mac).label('count')
     ).filter(
-        NetworkCache.ssid.isnot(None)
+        MerakiClient.last_ssid.isnot(None)
     ).group_by(
-        NetworkCache.ssid
+        MerakiClient.last_ssid
     ).order_by(
-        func.count(NetworkCache.mac_address).desc()
+        func.count(MerakiClient.mac).desc()
     ).all()
 
-    ssids = [{"name": ssid or "Unknown", "count": count} for ssid, count in ssid_counts]
+    clients_by_ssid = [{"name": ssid or "Unknown", "count": count} for ssid, count in ssid_counts]
 
-    # Recent clients (last 10 seen)
-    recent_clients = db.query(NetworkCache).order_by(
-        NetworkCache.last_seen.desc()
+    # ============ INFRASTRUCTURE BY SITE ============
+
+    # Get devices per network with network name
+    site_query = db.query(
+        MerakiNetwork.name,
+        MerakiDevice.product_type,
+        func.count(MerakiDevice.serial).label('count')
+    ).join(
+        MerakiDevice, MerakiDevice.network_id == MerakiNetwork.network_id
+    ).group_by(
+        MerakiNetwork.name,
+        MerakiDevice.product_type
+    ).order_by(
+        MerakiNetwork.name
+    ).all()
+
+    # Organize by site
+    sites_data = {}
+    for name, product_type, count in site_query:
+        # Extract site name (remove -wireless, -switch suffixes)
+        site_name = name.replace("-wireless", "").replace("-switch", "").replace("-Wireless", "").replace("-Switch", "")
+        if site_name not in sites_data:
+            sites_data[site_name] = {"aps": 0, "switches": 0}
+        if product_type == "wireless":
+            sites_data[site_name]["aps"] += count
+        elif product_type == "switch":
+            sites_data[site_name]["switches"] += count
+
+    # Convert to list and sort by total device count
+    infrastructure_by_site = [
+        {"name": name, "aps": data["aps"], "switches": data["switches"], "total": data["aps"] + data["switches"]}
+        for name, data in sites_data.items()
+    ]
+    infrastructure_by_site.sort(key=lambda x: x["total"], reverse=True)
+
+    # ============ FIRMWARE VERSIONS ============
+
+    # AP firmware versions
+    ap_firmware = db.query(
+        MerakiDevice.firmware,
+        func.count(MerakiDevice.serial).label('count')
+    ).filter(
+        MerakiDevice.product_type == "wireless",
+        MerakiDevice.firmware.isnot(None)
+    ).group_by(
+        MerakiDevice.firmware
+    ).order_by(
+        func.count(MerakiDevice.serial).desc()
+    ).limit(5).all()
+
+    ap_firmware_list = [{"version": fw or "Unknown", "count": count} for fw, count in ap_firmware]
+
+    # Switch firmware versions
+    switch_firmware = db.query(
+        MerakiDevice.firmware,
+        func.count(MerakiDevice.serial).label('count')
+    ).filter(
+        MerakiDevice.product_type == "switch",
+        MerakiDevice.firmware.isnot(None)
+    ).group_by(
+        MerakiDevice.firmware
+    ).order_by(
+        func.count(MerakiDevice.serial).desc()
+    ).limit(5).all()
+
+    switch_firmware_list = [{"version": fw or "Unknown", "count": count} for fw, count in switch_firmware]
+
+    # ============ MODEL BREAKDOWN ============
+
+    # AP models
+    ap_models = db.query(
+        MerakiDevice.model,
+        func.count(MerakiDevice.serial).label('count')
+    ).filter(
+        MerakiDevice.product_type == "wireless"
+    ).group_by(
+        MerakiDevice.model
+    ).order_by(
+        func.count(MerakiDevice.serial).desc()
+    ).all()
+
+    ap_models_list = [{"model": model, "count": count} for model, count in ap_models]
+
+    # Switch models
+    switch_models = db.query(
+        MerakiDevice.model,
+        func.count(MerakiDevice.serial).label('count')
+    ).filter(
+        MerakiDevice.product_type == "switch"
+    ).group_by(
+        MerakiDevice.model
+    ).order_by(
+        func.count(MerakiDevice.serial).desc()
+    ).all()
+
+    switch_models_list = [{"model": model, "count": count} for model, count in switch_models]
+
+    # ============ CLIENTS BY GROUP POLICY (PSK Group) ============
+
+    group_policy_counts = db.query(
+        MerakiClient.psk_group,
+        func.count(MerakiClient.mac).label('count')
+    ).filter(
+        MerakiClient.psk_group.isnot(None)
+    ).group_by(
+        MerakiClient.psk_group
+    ).order_by(
+        func.count(MerakiClient.mac).desc()
+    ).all()
+
+    clients_by_group = [{"name": group or "Unknown", "count": count} for group, count in group_policy_counts]
+
+    # ============ TOP APs BY CLIENT COUNT ============
+    # Filter to only show wireless access points, not switches
+
+    # Get all AP serials first
+    ap_serials = db.query(MerakiDevice.serial).filter(
+        MerakiDevice.product_type == "wireless"
+    ).subquery()
+
+    top_aps_query = db.query(
+        MerakiClient.last_ap_name,
+        MerakiClient.last_ap_serial,
+        func.count(MerakiClient.mac).label('count')
+    ).filter(
+        MerakiClient.last_ap_name.isnot(None),
+        MerakiClient.last_ap_serial.in_(ap_serials)
+    ).group_by(
+        MerakiClient.last_ap_name,
+        MerakiClient.last_ap_serial
+    ).order_by(
+        func.count(MerakiClient.mac).desc()
     ).limit(10).all()
 
-    recent = [{
-        "mac_address": client.mac_address,
-        "ip_address": client.ip_address,
-        "ap_name": client.last_ap_name,
-        "ssid": client.ssid,
-        "last_seen": client.last_seen.isoformat() if client.last_seen else None
-    } for client in recent_clients]
+    top_aps_list = [
+        {"name": name, "serial": serial, "count": count}
+        for name, serial, count in top_aps_query
+    ]
+
+    # ============ LAST SYNC INFO ============
+
+    last_device_update = db.query(func.max(MerakiDevice.last_updated)).scalar()
+    last_client_update = db.query(func.max(MerakiClient.last_updated)).scalar()
 
     return {
-        "total_cached": total,
-        "unique_aps": unique_aps,
-        "unique_ssids": unique_ssids,
-        "top_aps": aps,
-        "ssids": ssids,
-        "recent_clients": recent
+        "infrastructure": {
+            "total_aps": total_aps,
+            "total_switches": total_switches,
+            "total_devices": total_aps + total_switches,
+            "networks": total_networks,
+            "status": {
+                "online": devices_online,
+                "dormant": devices_dormant,
+                "offline": devices_offline
+            }
+        },
+        "clients": {
+            "total": total_clients,
+            "by_ssid": clients_by_ssid
+        },
+        "by_site": infrastructure_by_site,
+        "firmware": {
+            "aps": ap_firmware_list,
+            "switches": switch_firmware_list
+        },
+        "models": {
+            "aps": ap_models_list,
+            "switches": switch_models_list
+        },
+        "clients_by_group": clients_by_group,
+        "top_aps": top_aps_list,
+        "last_sync": {
+            "devices": last_device_update.isoformat() if last_device_update else None,
+            "clients": last_client_update.isoformat() if last_client_update else None
+        }
     }

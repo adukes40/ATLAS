@@ -3,7 +3,7 @@ import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import {
   FileText, Laptop, Clock, DollarSign, UserX, Users2,
-  ChevronRight, Loader2, ArrowLeft, Wrench
+  ChevronRight, Loader2, ArrowLeft, Wrench, Server, Shield
 } from 'lucide-react'
 
 // Report Pages
@@ -13,6 +13,8 @@ import FeeBalances from './FeeBalances'
 import NoChromebook from './NoChromebook'
 import MultipleDevices from './MultipleDevices'
 import CustomBuilder from './CustomBuilder'
+import InfrastructureInventory from './InfrastructureInventory'
+import FirmwareCompliance from './FirmwareCompliance'
 
 // Report Card Component
 function ReportCard({ icon: Icon, title, description, stat, color, onClick }) {
@@ -150,6 +152,29 @@ function ReportsHome() {
         </div>
       </section>
 
+      {/* Network Reports Section */}
+      <section>
+        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">
+          Network Reports
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <ReportCard
+            icon={Server}
+            title="Infrastructure Inventory"
+            description="All Meraki APs and switches"
+            color="purple"
+            onClick={() => navigate('/reports/infrastructure-inventory')}
+          />
+          <ReportCard
+            icon={Shield}
+            title="Firmware Compliance"
+            description="Device firmware versions"
+            color="slate"
+            onClick={() => navigate('/reports/firmware-compliance')}
+          />
+        </div>
+      </section>
+
       {/* Custom Report Builder Section */}
       <section>
         <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">
@@ -207,6 +232,8 @@ export default function ReportsIndex() {
         <Route path="/no-chromebook" element={<NoChromebook />} />
         <Route path="/multiple-devices" element={<MultipleDevices />} />
         <Route path="/custom" element={<CustomBuilder />} />
+        <Route path="/infrastructure-inventory" element={<InfrastructureInventory />} />
+        <Route path="/firmware-compliance" element={<FirmwareCompliance />} />
       </Routes>
     </div>
   )

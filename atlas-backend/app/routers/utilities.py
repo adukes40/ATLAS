@@ -6,7 +6,10 @@ import subprocess
 import os
 
 from app.database import get_db
-from app.models import IIQAsset, IIQUser, GoogleDevice, GoogleUser, NetworkCache, SyncLog
+from app.models import (
+    IIQAsset, IIQUser, GoogleDevice, GoogleUser, NetworkCache, SyncLog,
+    MerakiNetwork, MerakiDevice, MerakiSSID, MerakiClient
+)
 
 router = APIRouter(prefix="/api/utilities", tags=["utilities"])
 
@@ -40,6 +43,26 @@ ALLOWED_TABLES = {
         "model": NetworkCache,
         "pk": "mac_address",
         "columns": ["mac_address", "ip_address", "last_ap_name", "ssid", "last_seen"]
+    },
+    "meraki_networks": {
+        "model": MerakiNetwork,
+        "pk": "network_id",
+        "columns": ["network_id", "name", "product_types", "tags", "time_zone", "last_updated"]
+    },
+    "meraki_devices": {
+        "model": MerakiDevice,
+        "pk": "serial",
+        "columns": ["serial", "name", "model", "mac", "network_id", "product_type", "status", "lan_ip", "last_updated"]
+    },
+    "meraki_ssids": {
+        "model": MerakiSSID,
+        "pk": "id",
+        "columns": ["id", "network_id", "ssid_number", "name", "enabled", "auth_mode", "encryption_mode", "last_updated"]
+    },
+    "meraki_clients": {
+        "model": MerakiClient,
+        "pk": "mac",
+        "columns": ["mac", "description", "manufacturer", "os", "last_ssid", "last_ap_name", "status", "last_seen", "last_updated"]
     }
 }
 
@@ -49,7 +72,7 @@ def get_sync_status(db: Session = Depends(get_db)):
     """
     Returns last sync time and status for each data source.
     """
-    sources = ["iiq", "google"]
+    sources = ["iiq", "google", "meraki"]
     status = {}
 
     for source in sources:
@@ -85,12 +108,6 @@ def get_sync_status(db: Session = Depends(get_db)):
                 "message": "No sync history found"
             }
 
-    # Meraki is always on-demand
-    status["meraki"] = {
-        "status": "on-demand",
-        "message": "Populated via Device 360 lookups"
-    }
-
     return status
 
 
@@ -101,7 +118,8 @@ def run_sync_script(source: str):
     """
     script_map = {
         "iiq": "/opt/atlas/atlas-backend/scripts/iiq_bulk_sync.py",
-        "google": "/opt/atlas/atlas-backend/scripts/google_bulk_sync.py"
+        "google": "/opt/atlas/atlas-backend/scripts/google_bulk_sync.py",
+        "meraki": "/opt/atlas/atlas-backend/scripts/meraki_bulk_sync.py"
     }
 
     script_path = script_map.get(source)
@@ -142,8 +160,8 @@ def trigger_sync(source: str, background_tasks: BackgroundTasks, db: Session = D
     Triggers a manual sync for the specified data source.
     Returns immediately - the sync script handles its own logging.
     """
-    if source not in ["iiq", "google"]:
-        raise HTTPException(status_code=400, detail=f"Invalid source: {source}. Must be 'iiq' or 'google'")
+    if source not in ["iiq", "google", "meraki"]:
+        raise HTTPException(status_code=400, detail=f"Invalid source: {source}. Must be 'iiq', 'google', or 'meraki'")
 
     # Check if already running
     running = db.query(SyncLog).filter(

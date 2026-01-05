@@ -15,7 +15,7 @@ export default function SyncCard({ source, status, onSync, disabled }) {
     meraki: {
       name: 'Meraki',
       color: 'purple',
-      description: 'Network Location'
+      description: 'Networks, Devices, SSIDs, Clients'
     }
   }
 
@@ -87,9 +87,8 @@ export default function SyncCard({ source, status, onSync, disabled }) {
     slate: 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/20'
   }
 
-  const isMeraki = source === 'meraki'
   const isRunning = status?.status === 'running'
-  const canSync = !isMeraki && !isRunning && !disabled
+  const canSync = !isRunning && !disabled
 
   return (
     <div className={`rounded-xl border-2 p-5 ${colorClasses[config.color]}`}>
@@ -157,8 +156,6 @@ export default function SyncCard({ source, status, onSync, disabled }) {
             <Loader2 className="h-4 w-4 animate-spin" />
             Syncing...
           </>
-        ) : isMeraki ? (
-          'N/A'
         ) : (
           <>
             <RefreshCw className="h-4 w-4" />
