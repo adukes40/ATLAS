@@ -313,12 +313,7 @@ collect_iiq_config() {
   echo ""
   echo ""
   echo -e "  ${DIM}Product ID: Found at Admin > Developer Tools${CL}"
-  echo -e "  ${DIM}  Common: Chromebooks = 88df910c-91aa-e711-80c2-0004ffa00050${CL}"
-  read -p "  IIQ Product ID (press Enter for Chromebooks default): " IIQ_PRODUCT_ID
-  if [[ -z "$IIQ_PRODUCT_ID" ]]; then
-    IIQ_PRODUCT_ID="88df910c-91aa-e711-80c2-0004ffa00050"
-    echo -e "  ${DIM}Using default Chromebooks Product ID${CL}"
-  fi
+  read -p "  IIQ Product ID: " IIQ_PRODUCT_ID
 }
 
 collect_google_service_account() {
@@ -340,7 +335,7 @@ collect_google_oauth() {
   echo -e "  ${DIM}Create OAuth 2.0 Client ID at Google Cloud Console:${CL}"
   echo -e "  ${DIM}  - APIs & Services > Credentials > Create Credentials > OAuth client ID${CL}"
   echo -e "  ${DIM}  - Application type: Web application${CL}"
-  echo -e "  ${DIM}  - Authorized redirect URI: http://${ATLAS_DOMAIN}/auth/callback${CL}"
+  echo -e "  ${DIM}  - Authorized redirect URI: http://<your-atlas-domain>/auth/callback${CL}"
   echo ""
   read -p "  Google OAuth Client ID: " GOOGLE_OAUTH_CLIENT_ID
   read -sp "  Google OAuth Client Secret: " GOOGLE_OAUTH_CLIENT_SECRET
@@ -353,7 +348,7 @@ collect_access_control() {
   echo -e "  ${DIM}Create a Google Group to control who can access ATLAS${CL}"
   echo -e "  ${DIM}Only members of this group will be able to sign in${CL}"
   echo ""
-  read -p "  Google Group email for access control (e.g., atlas-users@${ALLOWED_DOMAIN}): " REQUIRED_GROUP
+  read -p "  Google Group email for access control (e.g., atlas-users@yourdomain.org): " REQUIRED_GROUP
 }
 
 collect_meraki_config() {
