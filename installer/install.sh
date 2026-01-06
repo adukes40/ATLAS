@@ -684,56 +684,44 @@ setup_database() {
     exit 1
   fi
 
-  # Helper to run SQL via temp file (handles special chars in passwords)
-  run_sql_file() {
+  # Simple function to run SQL as postgres user (works on LXC without sudo)
+  pg_exec() {
     local sql="$1"
-    local tmpfile="/tmp/atlas_sql_$$.tmp"
-    echo "$sql" > "$tmpfile"
-    chmod 600 "$tmpfile"
-    chown postgres:postgres "$tmpfile" 2>/dev/null || true
-
-    local result
-    if command -v sudo &> /dev/null; then
-      sudo -u postgres psql -f "$tmpfile" > /dev/null 2>&1
-      result=$?
-    else
-      su -s /bin/bash postgres -c "psql -f $tmpfile" > /dev/null 2>&1
-      result=$?
-    fi
-    rm -f "$tmpfile"
-    return $result
+    su - postgres -c "psql -c \"$sql\"" 2>&1
   }
 
   # Create or update the atlas_admin user
-  USER_EXISTS=$(run_psql "SELECT 1 FROM pg_roles WHERE rolname='atlas_admin';" 2>/dev/null | grep -c "1" || echo "0")
-
-  if [[ "$USER_EXISTS" == "0" ]]; then
-    echo -e "  ${DIM}Creating database user atlas_admin...${CL}"
-    if ! run_sql_file "CREATE USER atlas_admin WITH PASSWORD '$DB_PASSWORD';"; then
-      msg_error "Failed to create database user"
-      exit 1
-    fi
-  else
+  echo -e "  ${DIM}Checking for existing database user...${CL}"
+  if su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='atlas_admin'\"" 2>/dev/null | grep -q "1"; then
     echo -e "  ${DIM}Updating existing user atlas_admin password...${CL}"
-    if ! run_sql_file "ALTER USER atlas_admin WITH PASSWORD '$DB_PASSWORD';"; then
-      msg_error "Failed to update database user password"
-      exit 1
-    fi
+    pg_exec "ALTER USER atlas_admin WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1
+  else
+    echo -e "  ${DIM}Creating database user atlas_admin...${CL}"
+    pg_exec "CREATE USER atlas_admin WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1
+  fi
+
+  # Verify user was created
+  if ! su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='atlas_admin'\"" 2>/dev/null | grep -q "1"; then
+    msg_error "Failed to create database user atlas_admin"
+    exit 1
   fi
 
   # Create database if it doesn't exist
-  DB_EXISTS=$(run_psql "SELECT 1 FROM pg_database WHERE datname='atlas_db';" 2>/dev/null | grep -c "1" || echo "0")
-
-  if [[ "$DB_EXISTS" == "0" ]]; then
+  if su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='atlas_db'\"" 2>/dev/null | grep -q "1"; then
+    echo -e "  ${DIM}Database atlas_db already exists${CL}"
+  else
     echo -e "  ${DIM}Creating database atlas_db...${CL}"
-    if ! run_sql_file "CREATE DATABASE atlas_db OWNER atlas_admin;"; then
-      msg_error "Failed to create database"
-      exit 1
-    fi
+    pg_exec "CREATE DATABASE atlas_db OWNER atlas_admin;" > /dev/null 2>&1
+  fi
+
+  # Verify database was created
+  if ! su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='atlas_db'\"" 2>/dev/null | grep -q "1"; then
+    msg_error "Failed to create database atlas_db"
+    exit 1
   fi
 
   # Grant privileges (idempotent)
-  run_sql_file "GRANT ALL PRIVILEGES ON DATABASE atlas_db TO atlas_admin;" || true
+  pg_exec "GRANT ALL PRIVILEGES ON DATABASE atlas_db TO atlas_admin;" > /dev/null 2>&1 || true
 
   # Configure pg_hba.conf to allow password authentication for localhost
   echo -e "  ${DIM}Configuring PostgreSQL authentication...${CL}"
