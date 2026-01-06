@@ -327,44 +327,84 @@ collect_google_service_account() {
   echo ""
 
   echo -e "  ${BOLD}How do you want to provide the credentials?${CL}"
-  echo -e "    ${DIM}1) Paste JSON content (recommended)${CL}"
-  echo -e "    ${DIM}2) Specify path to existing file${CL}"
-  read -p "  Choice [1/2]: " CREDS_CHOICE
+  echo -e "    ${DIM}1) Paste base64-encoded JSON (recommended - most reliable)${CL}"
+  echo -e "    ${DIM}2) Paste raw JSON content${CL}"
+  echo -e "    ${DIM}3) Specify path to existing file${CL}"
+  read -p "  Choice [1/2/3]: " CREDS_CHOICE
 
-  if [[ "$CREDS_CHOICE" == "2" ]]; then
+  GOOGLE_CREDS_PATH="/opt/atlas/atlas-backend/google_credentials.json"
+  mkdir -p /opt/atlas/atlas-backend
+
+  if [[ "$CREDS_CHOICE" == "3" ]]; then
     # Existing file path
     while true; do
       read -p "  Enter path to Google Service Account JSON file: " GOOGLE_CREDS_PATH
       if [[ -f "$GOOGLE_CREDS_PATH" ]]; then
-        echo -e "  ${GN}File found${CL}"
-        break
+        # Validate JSON
+        if python3 -c "import json; json.load(open('$GOOGLE_CREDS_PATH'))" 2>/dev/null; then
+          echo -e "  ${GN}Valid JSON file found${CL}"
+          break
+        else
+          echo -e "  ${RD}File exists but is not valid JSON${CL}"
+        fi
       else
         echo -e "  ${RD}File not found: $GOOGLE_CREDS_PATH${CL}"
       fi
     done
+
+  elif [[ "$CREDS_CHOICE" == "1" ]]; then
+    # Base64 encoded (most reliable)
+    echo ""
+    echo -e "  ${DIM}On the machine with your credentials file, run:${CL}"
+    echo -e "  ${YW}base64 -w0 google_credentials.json && echo${CL}"
+    echo ""
+    echo -e "  ${DIM}Then paste the output here (single line):${CL}"
+
+    while true; do
+      read -p "  Base64 string: " BASE64_CREDS
+      if echo "$BASE64_CREDS" | base64 -d > "$GOOGLE_CREDS_PATH" 2>/dev/null; then
+        # Validate JSON
+        if python3 -c "import json; json.load(open('$GOOGLE_CREDS_PATH'))" 2>/dev/null; then
+          chmod 600 "$GOOGLE_CREDS_PATH"
+          echo -e "  ${GN}Credentials decoded and validated successfully${CL}"
+          break
+        else
+          echo -e "  ${RD}Decoded content is not valid JSON. Please try again.${CL}"
+        fi
+      else
+        echo -e "  ${RD}Invalid base64 string. Please try again.${CL}"
+      fi
+    done
+
   else
-    # Paste JSON content
-    GOOGLE_CREDS_PATH="/opt/atlas/atlas-backend/google_credentials.json"
+    # Raw JSON paste (option 2 or default)
+    echo ""
+    echo -e "  ${YW}WARNING: Raw paste can corrupt the private key due to line breaks.${CL}"
+    echo -e "  ${YW}Base64 method (option 1) is more reliable.${CL}"
     echo ""
     echo -e "  ${DIM}Paste your Google Service Account JSON below.${CL}"
     echo -e "  ${DIM}After pasting, press Enter, then Ctrl+D to finish:${CL}"
     echo ""
 
-    # Create directory if it doesn't exist
-    mkdir -p /opt/atlas/atlas-backend
-
     # Read multiline input
     CREDS_CONTENT=$(cat)
-
-    # Save to file
     echo "$CREDS_CONTENT" > "$GOOGLE_CREDS_PATH"
     chmod 600 "$GOOGLE_CREDS_PATH"
 
-    # Validate it's JSON
-    if grep -q "private_key" "$GOOGLE_CREDS_PATH" 2>/dev/null; then
-      echo -e "  ${GN}Credentials saved to $GOOGLE_CREDS_PATH${CL}"
+    # Validate JSON with Python
+    if python3 -c "import json; json.load(open('$GOOGLE_CREDS_PATH'))" 2>/dev/null; then
+      echo -e "  ${GN}Credentials saved and validated${CL}"
     else
-      echo -e "  ${RD}Warning: File doesn't appear to be valid service account JSON${CL}"
+      echo -e "  ${RD}WARNING: JSON validation failed!${CL}"
+      echo -e "  ${RD}The private key may have been corrupted during paste.${CL}"
+      echo -e "  ${YW}Recommendation: Re-run installer and use base64 method (option 1)${CL}"
+      echo ""
+      read -p "  Continue anyway? [y/N]: " CONTINUE_ANYWAY
+      if [[ ! "$CONTINUE_ANYWAY" =~ ^[Yy] ]]; then
+        echo -e "  ${DIM}Restarting credentials collection...${CL}"
+        collect_google_service_account
+        return
+      fi
     fi
   fi
 

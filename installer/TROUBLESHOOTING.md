@@ -127,6 +127,48 @@ pg_createcluster $PG_VERSION main --start
 pg_lsclusters
 ```
 
+### PostgreSQL password authentication fails even with correct password
+
+**Symptom:** Service logs show password auth failed, but the password is correct.
+
+**Cause:** `pg_hba.conf` doesn't allow password (md5) authentication for localhost TCP connections.
+
+**Solution:**
+```bash
+# Add password auth for localhost
+echo "host    all    all    127.0.0.1/32    md5" >> /etc/postgresql/*/main/pg_hba.conf
+echo "host    all    all    ::1/128         md5" >> /etc/postgresql/*/main/pg_hba.conf
+
+# Reload PostgreSQL
+systemctl reload postgresql
+
+# Restart atlas
+systemctl restart atlas
+```
+
+### Installer verification passes but service still fails
+
+**Symptom:** Installer says "PostgreSQL database configured" but service won't start.
+
+**Cause:** The installer verification used a fallback method. Look for this warning:
+```
+[WARN] Note: Password auth may need manual pg_hba.conf configuration
+```
+
+**Solution:** Manually configure pg_hba.conf (see above) and verify the user/database exist:
+```bash
+# Check if user exists
+su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='atlas_admin'\""
+
+# Check if database exists
+su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='atlas_db'\""
+
+# If either returns empty, create them:
+su - postgres -c "psql -c \"CREATE USER atlas_admin WITH PASSWORD 'YOUR_PASSWORD';\""
+su - postgres -c "psql -c \"CREATE DATABASE atlas_db OWNER atlas_admin;\""
+su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE atlas_db TO atlas_admin;\""
+```
+
 ---
 
 ## Service Issues
@@ -203,31 +245,46 @@ systemctl restart atlastest  # This won't work
 
 ### "Invalid control character" JSON error
 
-**Symptom:** Login fails with JSON parsing error in logs.
+**Symptom:** Login fails with JSON parsing error in logs:
+```
+[Auth] Unexpected error checking group membership: Invalid control character at: line 5 column 1003 (char 1139)
+```
 
-**Cause:** The `google_credentials.json` file was corrupted, usually during copy/paste.
+**Cause:** The `google_credentials.json` file was corrupted during paste. The private key contains `\n` characters that get converted to actual line breaks, breaking the JSON structure.
 
-**Solution:**
+**Why this happens:** When pasting multiline JSON in a terminal, line breaks can be introduced in the middle of the private key string. For example:
+```
+...TwKBg
+  QDDbU...   <-- Line break in the middle of the key!
+```
+
+**Solution - Use base64 encoding (only reliable method):**
+
+On the source machine (where credentials work):
 ```bash
-# Check if file is valid JSON
-python3 -c "import json; json.load(open('/opt/atlas/atlas-backend/google_credentials.json'))"
+base64 -w0 /opt/atlas/atlas-backend/google_credentials.json && echo
+```
 
-# If it fails, the file is corrupted. Re-copy it properly:
-
-# Option 1: Use base64 encoding for safe transfer
-# On source machine:
-base64 -w0 google_credentials.json
-
-# On target machine:
-echo "PASTE_BASE64_HERE" | base64 -d > /opt/atlas/atlas-backend/google_credentials.json
+On the ATLAS server:
+```bash
+echo "PASTE_THE_ENTIRE_BASE64_STRING_HERE" | base64 -d > /opt/atlas/atlas-backend/google_credentials.json
 chmod 600 /opt/atlas/atlas-backend/google_credentials.json
 
-# Option 2: SCP from another machine
-scp user@source:/path/to/google_credentials.json /opt/atlas/atlas-backend/
+# Verify it's valid JSON
+python3 -c "import json; json.load(open('/opt/atlas/atlas-backend/google_credentials.json')); print('JSON OK')"
 
-# Restart after fixing
+# Restart
 systemctl restart atlas
 ```
+
+**Alternative - SCP from another machine:**
+```bash
+scp user@source:/path/to/google_credentials.json /opt/atlas/atlas-backend/
+chmod 600 /opt/atlas/atlas-backend/google_credentials.json
+systemctl restart atlas
+```
+
+> **Tip:** The installer now offers base64 as option 1 (recommended) to avoid this issue.
 
 ### "Access restricted to members of [group]"
 

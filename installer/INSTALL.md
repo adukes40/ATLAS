@@ -149,6 +149,12 @@ Create a service account for syncing device and user data:
      ```
 - **Admin Email**: A super admin email for delegation (e.g., `admin@yourdistrict.org`)
 
+> **Important:** When entering credentials during installation, use the **base64 method** (option 1) to avoid JSON corruption. Raw paste can break the private key due to line breaks. To encode your credentials:
+> ```bash
+> base64 -w0 google_credentials.json && echo
+> ```
+> Then paste the single-line output during installation.
+
 #### 3. Google Workspace - OAuth Client (for user authentication)
 Create OAuth credentials for user login:
 
@@ -214,11 +220,15 @@ systemctl start postgresql
 systemctl enable postgresql
 
 # Create database and user
-sudo -u postgres psql << EOF
-CREATE USER atlas WITH PASSWORD 'your_secure_password';
-CREATE DATABASE atlas OWNER atlas;
-GRANT ALL PRIVILEGES ON DATABASE atlas TO atlas;
-EOF
+# Note: On LXC containers without sudo, use: su - postgres -c "psql -c '...'"
+sudo -u postgres psql -c "CREATE USER atlas_admin WITH PASSWORD 'your_secure_password';"
+sudo -u postgres psql -c "CREATE DATABASE atlas_db OWNER atlas_admin;"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE atlas_db TO atlas_admin;"
+
+# Enable password authentication for localhost
+echo "host    all    all    127.0.0.1/32    md5" >> /etc/postgresql/*/main/pg_hba.conf
+echo "host    all    all    ::1/128         md5" >> /etc/postgresql/*/main/pg_hba.conf
+systemctl reload postgresql
 ```
 
 ### Step 6: Create Environment File
@@ -227,7 +237,7 @@ cat > /opt/atlas/atlas-backend/.env << EOF
 # =============================================================================
 # DATABASE
 # =============================================================================
-DATABASE_URL=postgresql://atlas:your_secure_password@localhost/atlas
+DATABASE_URL=postgresql://atlas_admin:your_secure_password@localhost/atlas_db
 
 # =============================================================================
 # INCIDENT IQ (IIQ) API
@@ -274,9 +284,27 @@ chmod 600 /opt/atlas/atlas-backend/.env
 ```
 
 ### Step 7: Copy Google Service Account Credentials
+
+**Option A: Copy from local file**
 ```bash
 cp /path/to/your/service-account.json /opt/atlas/atlas-backend/google_credentials.json
 chmod 600 /opt/atlas/atlas-backend/google_credentials.json
+```
+
+**Option B: Transfer via base64 (recommended for remote transfers)**
+
+On the source machine:
+```bash
+base64 -w0 service-account.json && echo
+```
+
+On the ATLAS server:
+```bash
+echo "PASTE_BASE64_HERE" | base64 -d > /opt/atlas/atlas-backend/google_credentials.json
+chmod 600 /opt/atlas/atlas-backend/google_credentials.json
+
+# Verify it's valid JSON
+python3 -c "import json; json.load(open('/opt/atlas/atlas-backend/google_credentials.json')); print('JSON OK')"
 ```
 
 ### Step 8: Set Up Python Virtual Environment
@@ -550,8 +578,8 @@ systemctl reload nginx
 rm /etc/cron.d/atlas
 
 # Remove database
-sudo -u postgres psql -c "DROP DATABASE atlas;"
-sudo -u postgres psql -c "DROP USER atlas;"
+sudo -u postgres psql -c "DROP DATABASE atlas_db;"
+sudo -u postgres psql -c "DROP USER atlas_admin;"
 
 # Remove files
 rm -rf /opt/atlas
