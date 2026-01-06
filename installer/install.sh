@@ -684,34 +684,38 @@ setup_database() {
     exit 1
   fi
 
+  # Helper to run SQL via temp file (handles special chars in passwords)
+  run_sql_file() {
+    local sql="$1"
+    local tmpfile="/tmp/atlas_sql_$$.tmp"
+    echo "$sql" > "$tmpfile"
+    chmod 600 "$tmpfile"
+    chown postgres:postgres "$tmpfile" 2>/dev/null || true
+
+    local result
+    if command -v sudo &> /dev/null; then
+      sudo -u postgres psql -f "$tmpfile" > /dev/null 2>&1
+      result=$?
+    else
+      su -s /bin/bash postgres -c "psql -f $tmpfile" > /dev/null 2>&1
+      result=$?
+    fi
+    rm -f "$tmpfile"
+    return $result
+  }
+
   # Create or update the atlas_admin user
-  # First check if user exists
   USER_EXISTS=$(run_psql "SELECT 1 FROM pg_roles WHERE rolname='atlas_admin';" 2>/dev/null | grep -c "1" || echo "0")
 
   if [[ "$USER_EXISTS" == "0" ]]; then
     echo -e "  ${DIM}Creating database user atlas_admin...${CL}"
-    # Use separate command to handle password with special characters
-    if command -v sudo &> /dev/null; then
-      sudo -u postgres psql -c "CREATE USER atlas_admin WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1
-    else
-      su - postgres << EOSQL > /dev/null 2>&1
-psql -c "CREATE USER atlas_admin WITH PASSWORD '$DB_PASSWORD';"
-EOSQL
-    fi
-    if [[ $? -ne 0 ]]; then
+    if ! run_sql_file "CREATE USER atlas_admin WITH PASSWORD '$DB_PASSWORD';"; then
       msg_error "Failed to create database user"
       exit 1
     fi
   else
     echo -e "  ${DIM}Updating existing user atlas_admin password...${CL}"
-    if command -v sudo &> /dev/null; then
-      sudo -u postgres psql -c "ALTER USER atlas_admin WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1
-    else
-      su - postgres << EOSQL > /dev/null 2>&1
-psql -c "ALTER USER atlas_admin WITH PASSWORD '$DB_PASSWORD';"
-EOSQL
-    fi
-    if [[ $? -ne 0 ]]; then
+    if ! run_sql_file "ALTER USER atlas_admin WITH PASSWORD '$DB_PASSWORD';"; then
       msg_error "Failed to update database user password"
       exit 1
     fi
@@ -722,19 +726,14 @@ EOSQL
 
   if [[ "$DB_EXISTS" == "0" ]]; then
     echo -e "  ${DIM}Creating database atlas_db...${CL}"
-    if command -v sudo &> /dev/null; then
-      sudo -u postgres psql -c "CREATE DATABASE atlas_db OWNER atlas_admin;" > /dev/null 2>&1
-    else
-      su - postgres -c "psql -c 'CREATE DATABASE atlas_db OWNER atlas_admin;'" > /dev/null 2>&1
-    fi
-    if [[ $? -ne 0 ]]; then
+    if ! run_sql_file "CREATE DATABASE atlas_db OWNER atlas_admin;"; then
       msg_error "Failed to create database"
       exit 1
     fi
   fi
 
   # Grant privileges (idempotent)
-  run_psql "GRANT ALL PRIVILEGES ON DATABASE atlas_db TO atlas_admin;" > /dev/null 2>&1 || true
+  run_sql_file "GRANT ALL PRIVILEGES ON DATABASE atlas_db TO atlas_admin;" || true
 
   # Verify we can connect with the new credentials
   echo -e "  ${DIM}Verifying database connection...${CL}"
