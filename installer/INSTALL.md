@@ -59,9 +59,9 @@ pct enter 101
 
 ### Step 4: Run the ATLAS installer
 
-Update the system and run the installer in one command:
+Update the system and run the installer:
 ```bash
-apt update && apt upgrade -y && apt install -y curl && bash -c "$(curl -fsSL https://raw.githubusercontent.com/adukes40/ATLAS/main/installer/install.sh)"
+apt update && apt upgrade -y && apt install -y git && git clone https://github.com/adukes40/atlas.git /opt/atlas && cd /opt/atlas/installer && chmod +x install.sh && ./install.sh
 ```
 
 ### Step 5: Complete the wizard
@@ -70,7 +70,7 @@ The installer will guide you through:
 - Entering API credentials
 - Configuring authentication
 
-> **Tip:** If the installer fails partway through, just re-run it. Your configuration will be saved and you can resume where you left off.
+> **Tip:** Hidden password fields will show `[•••••]` to confirm your input was received. If the installer fails partway through, just re-run it - your configuration will be saved and you can resume.
 
 ### Step 6: Access ATLAS
 Find your container's IP: `ip addr show eth0`
@@ -99,22 +99,37 @@ Download Ubuntu 22.04 LTS Server ISO from: https://ubuntu.com/download/server
 - Complete installation with default settings
 - Create your admin user
 
-### Step 3: Run the ATLAS installer
+### Step 3: Enable SSH for remote access (Recommended)
 
-Update the system and run the installer in one command:
+Hypervisor consoles often have issues with copy/paste. Enable SSH so you can use PuTTY or another terminal that supports proper copy/paste:
+
 ```bash
-sudo apt update && sudo apt upgrade -y && sudo apt install -y curl && sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/adukes40/ATLAS/main/installer/install.sh)"
+sudo apt update && sudo apt install -y openssh-server && sudo systemctl enable --now ssh
 ```
 
-### Step 4: Complete the wizard
+Then find your IP address:
+```bash
+ip addr show | grep "inet "
+```
+
+Connect via PuTTY or your preferred SSH client to continue the installation with full copy/paste support.
+
+### Step 4: Run the ATLAS installer
+
+Clone and run the installer:
+```bash
+sudo apt install -y git && sudo git clone https://github.com/adukes40/atlas.git /opt/atlas && cd /opt/atlas/installer && sudo chmod +x install.sh && sudo ./install.sh
+```
+
+### Step 5: Complete the wizard
 The installer will guide you through:
 - Selecting data sources (IIQ, Google, Meraki)
 - Entering API credentials
 - Configuring authentication
 
-> **Tip:** If the installer fails partway through, just re-run it. Your configuration will be saved and you can resume where you left off.
+> **Tip:** Hidden password fields will show `[•••••]` to confirm your input was received. If the installer fails partway through, just re-run it - your configuration will be saved and you can resume.
 
-### Step 5: Access ATLAS
+### Step 6: Access ATLAS
 Find your VM's IP: `ip addr`
 Open in browser: `http://<vm-ip>/`
 

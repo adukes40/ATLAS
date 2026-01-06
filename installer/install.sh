@@ -276,8 +276,10 @@ collect_database_config() {
   echo ""
   echo -e "${YW}Database Configuration${CL}"
   read -sp "  Enter PostgreSQL password for atlas user (leave blank to generate): " DB_PASSWORD
-  echo ""
-  if [[ -z "$DB_PASSWORD" ]]; then
+  if [[ -n "$DB_PASSWORD" ]]; then
+    echo -e " ${GN}[•••••]${CL}"
+  else
+    echo ""
     DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
     echo -e "  ${DIM}Generated secure password${CL}"
   fi
@@ -310,7 +312,7 @@ collect_iiq_config() {
   echo ""
   echo -e "  ${DIM}API Token: Create at Admin > Developer Tools > Create Token${CL}"
   read -sp "  IIQ API Token: " IIQ_TOKEN
-  echo ""
+  echo -e " ${GN}[•••••]${CL}"
   echo ""
   echo -e "  ${DIM}Product ID: Found at Admin > Developer Tools${CL}"
   read -p "  IIQ Product ID: " IIQ_PRODUCT_ID
@@ -422,7 +424,7 @@ collect_google_oauth() {
   echo ""
   read -p "  Google OAuth Client ID: " GOOGLE_OAUTH_CLIENT_ID
   read -sp "  Google OAuth Client Secret: " GOOGLE_OAUTH_CLIENT_SECRET
-  echo ""
+  echo -e " ${GN}[•••••]${CL}"
 }
 
 collect_access_control() {
@@ -438,7 +440,7 @@ collect_meraki_config() {
   echo ""
   echo -e "${YW}Cisco Meraki Configuration${CL}"
   read -sp "  Enter Meraki API Key: " MERAKI_API_KEY
-  echo ""
+  echo -e " ${GN}[•••••]${CL}"
   read -p "  Enter Meraki Organization ID: " MERAKI_ORG_ID
 }
 
