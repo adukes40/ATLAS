@@ -103,18 +103,90 @@ NODE_VERSION="20"
 GITHUB_REPO="https://github.com/adukes40/ATLAS.git"
 GITHUB_BRANCH="main"
 
+# Component flags (all enabled by default)
+ENABLE_IIQ=true
+ENABLE_GOOGLE=true
+ENABLE_MERAKI=true
+
 # ============================================================================
-# CREDENTIAL COLLECTION WIZARD
+# COMPONENT SELECTION
 # ============================================================================
-collect_credentials() {
+select_components() {
   echo ""
   echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
-  echo -e "${BOLD}${BL}|                    CONFIGURATION WIZARD                          |${CL}"
+  echo -e "${BOLD}${BL}|                    DATA SOURCE SELECTION                         |${CL}"
   echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
+  echo ""
+  echo -e "  ${DIM}ATLAS can integrate with multiple data sources.${CL}"
+  echo -e "  ${DIM}Select which integrations you want to configure:${CL}"
   echo ""
 
-  # Domain/Hostname
-  echo -e "${YW}Step 1/8: Server Configuration${CL}"
+  # IIQ Selection
+  echo -e "  ${BOLD}[1] Incident IQ (IIQ)${CL}"
+  echo -e "      ${DIM}Asset management, user data, fees, tickets${CL}"
+  read -p "      Enable IIQ integration? [Y/n]: " IIQ_CHOICE
+  if [[ "$IIQ_CHOICE" =~ ^[Nn] ]]; then
+    ENABLE_IIQ=false
+    echo -e "      ${YW}IIQ disabled${CL}"
+  else
+    ENABLE_IIQ=true
+    echo -e "      ${GN}IIQ enabled${CL}"
+  fi
+  echo ""
+
+  # Google Selection
+  echo -e "  ${BOLD}[2] Google Workspace${CL}"
+  echo -e "      ${DIM}ChromeOS devices, user directory, OAuth login${CL}"
+  read -p "      Enable Google integration? [Y/n]: " GOOGLE_CHOICE
+  if [[ "$GOOGLE_CHOICE" =~ ^[Nn] ]]; then
+    ENABLE_GOOGLE=false
+    echo -e "      ${YW}Google disabled${CL}"
+    echo ""
+    echo -e "      ${RD}WARNING: Google OAuth is required for user authentication.${CL}"
+    echo -e "      ${RD}Without it, ATLAS will have no login mechanism.${CL}"
+    read -p "      Are you sure you want to disable Google? [y/N]: " GOOGLE_CONFIRM
+    if [[ ! "$GOOGLE_CONFIRM" =~ ^[Yy] ]]; then
+      ENABLE_GOOGLE=true
+      echo -e "      ${GN}Google re-enabled${CL}"
+    fi
+  else
+    ENABLE_GOOGLE=true
+    echo -e "      ${GN}Google enabled${CL}"
+  fi
+  echo ""
+
+  # Meraki Selection
+  echo -e "  ${BOLD}[3] Cisco Meraki${CL}"
+  echo -e "      ${DIM}Network location, AP connections, client tracking${CL}"
+  read -p "      Enable Meraki integration? [Y/n]: " MERAKI_CHOICE
+  if [[ "$MERAKI_CHOICE" =~ ^[Nn] ]]; then
+    ENABLE_MERAKI=false
+    echo -e "      ${YW}Meraki disabled${CL}"
+  else
+    ENABLE_MERAKI=true
+    echo -e "      ${GN}Meraki enabled${CL}"
+  fi
+  echo ""
+
+  # Summary
+  echo -e "  ${BOLD}Selected Components:${CL}"
+  [[ "$ENABLE_IIQ" == true ]] && echo -e "    ${GN}[x]${CL} Incident IQ" || echo -e "    ${DIM}[ ]${CL} Incident IQ"
+  [[ "$ENABLE_GOOGLE" == true ]] && echo -e "    ${GN}[x]${CL} Google Workspace" || echo -e "    ${DIM}[ ]${CL} Google Workspace"
+  [[ "$ENABLE_MERAKI" == true ]] && echo -e "    ${GN}[x]${CL} Cisco Meraki" || echo -e "    ${DIM}[ ]${CL} Cisco Meraki"
+  echo ""
+
+  read -p "  Continue with these selections? [Y/n]: " COMPONENT_CONFIRM
+  if [[ "$COMPONENT_CONFIRM" =~ ^[Nn] ]]; then
+    select_components
+  fi
+}
+
+# ============================================================================
+# INDIVIDUAL CREDENTIAL COLLECTION FUNCTIONS
+# ============================================================================
+collect_server_config() {
+  echo ""
+  echo -e "${YW}Server Configuration${CL}"
   read -p "  Enter your domain or hostname (e.g., atlas.yourdistrict.org): " ATLAS_DOMAIN
   if [[ -z "$ATLAS_DOMAIN" ]]; then
     ATLAS_DOMAIN="localhost"
@@ -131,27 +203,41 @@ collect_credentials() {
       ALLOWED_DOMAIN="$DOMAIN_OVERRIDE"
     fi
   fi
-  echo ""
+}
 
-  # PostgreSQL Password
-  echo -e "${YW}Step 2/8: Database Configuration${CL}"
+collect_database_config() {
+  echo ""
+  echo -e "${YW}Database Configuration${CL}"
   read -sp "  Enter PostgreSQL password for atlas user (leave blank to generate): " DB_PASSWORD
   echo ""
   if [[ -z "$DB_PASSWORD" ]]; then
     DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
     echo -e "  ${DIM}Generated secure password${CL}"
   fi
-  echo ""
+}
 
-  # IIQ Configuration
-  echo -e "${YW}Step 3/8: Incident IQ (IIQ) Configuration${CL}"
+collect_iiq_config() {
+  echo ""
+  echo -e "${YW}Incident IQ (IIQ) Configuration${CL}"
   echo ""
   echo -e "  ${DIM}Where to find these values:${CL}"
   echo -e "  ${DIM}  - Login to IIQ as Admin${CL}"
   echo -e "  ${DIM}  - Go to Admin > Developer Tools${CL}"
   echo ""
-  read -p "  IIQ Instance URL (e.g., https://yourdistrict.incidentiq.com): " IIQ_BASE_URL
+
+  # Smart URL construction from subdomain
+  echo -e "  ${DIM}Enter your IIQ subdomain (the part before .incidentiq.com)${CL}"
+  echo -e "  ${DIM}Examples: crsd, msd, sussextech, appoquinimink${CL}"
+  read -p "  IIQ Instance Name: " IIQ_SUBDOMAIN
+
+  # Strip any accidental full URL or .incidentiq.com suffix
+  IIQ_SUBDOMAIN=$(echo "$IIQ_SUBDOMAIN" | sed 's|https\?://||' | sed 's|\.incidentiq\.com.*||')
+
+  # Construct full URL
+  IIQ_BASE_URL="https://${IIQ_SUBDOMAIN}.incidentiq.com"
+  echo -e "  ${GN}URL: ${IIQ_BASE_URL}${CL}"
   echo ""
+
   echo -e "  ${DIM}Site ID: Found at Admin > Developer Tools${CL}"
   read -p "  IIQ Site ID (UUID format): " IIQ_SITE_ID
   echo ""
@@ -166,10 +252,11 @@ collect_credentials() {
     IIQ_PRODUCT_ID="88df910c-91aa-e711-80c2-0004ffa00050"
     echo -e "  ${DIM}Using default Chromebooks Product ID${CL}"
   fi
-  echo ""
+}
 
-  # Google Service Account Configuration
-  echo -e "${YW}Step 4/8: Google Workspace - Service Account (for data sync)${CL}"
+collect_google_service_account() {
+  echo ""
+  echo -e "${YW}Google Workspace - Service Account (for data sync)${CL}"
   echo -e "  ${DIM}You'll need a Service Account JSON file with Admin SDK access${CL}"
   echo -e "  ${DIM}Required scopes (domain-wide delegation):${CL}"
   echo -e "  ${DIM}  - https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly${CL}"
@@ -178,10 +265,11 @@ collect_credentials() {
   echo ""
   read -p "  Enter path to Google Service Account JSON file: " GOOGLE_CREDS_PATH
   read -p "  Enter admin email for domain-wide delegation: " GOOGLE_ADMIN_EMAIL
-  echo ""
+}
 
-  # Google OAuth Configuration
-  echo -e "${YW}Step 5/8: Google Workspace - OAuth (for user login)${CL}"
+collect_google_oauth() {
+  echo ""
+  echo -e "${YW}Google Workspace - OAuth (for user login)${CL}"
   echo -e "  ${DIM}Create OAuth 2.0 Client ID at Google Cloud Console:${CL}"
   echo -e "  ${DIM}  - APIs & Services > Credentials > Create Credentials > OAuth client ID${CL}"
   echo -e "  ${DIM}  - Application type: Web application${CL}"
@@ -190,55 +278,213 @@ collect_credentials() {
   read -p "  Google OAuth Client ID: " GOOGLE_OAUTH_CLIENT_ID
   read -sp "  Google OAuth Client Secret: " GOOGLE_OAUTH_CLIENT_SECRET
   echo ""
-  echo ""
+}
 
-  # Access Control Group
-  echo -e "${YW}Step 6/8: Access Control${CL}"
+collect_access_control() {
+  echo ""
+  echo -e "${YW}Access Control${CL}"
   echo -e "  ${DIM}Create a Google Group to control who can access ATLAS${CL}"
   echo -e "  ${DIM}Only members of this group will be able to sign in${CL}"
   echo ""
   read -p "  Google Group email for access control (e.g., atlas-users@${ALLOWED_DOMAIN}): " REQUIRED_GROUP
-  echo ""
+}
 
-  # Meraki Configuration
-  echo -e "${YW}Step 7/8: Cisco Meraki Configuration${CL}"
+collect_meraki_config() {
+  echo ""
+  echo -e "${YW}Cisco Meraki Configuration${CL}"
   read -sp "  Enter Meraki API Key: " MERAKI_API_KEY
   echo ""
   read -p "  Enter Meraki Organization ID: " MERAKI_ORG_ID
+}
+
+# ============================================================================
+# CREDENTIAL COLLECTION WIZARD (with edit support)
+# ============================================================================
+collect_credentials() {
   echo ""
+  echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
+  echo -e "${BOLD}${BL}|                    CONFIGURATION WIZARD                          |${CL}"
+  echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
+
+  # Track current step for dynamic step numbering
+  local current_step=1
+  local total_steps=2  # Server + Database always required
+
+  [[ "$ENABLE_IIQ" == true ]] && ((total_steps++))
+  [[ "$ENABLE_GOOGLE" == true ]] && ((total_steps+=3))  # Service account + OAuth + Access control
+  [[ "$ENABLE_MERAKI" == true ]] && ((total_steps++))
+  ((total_steps++))  # Review step
+
+  # Step 1: Server Configuration
+  echo ""
+  echo -e "${DIM}Step ${current_step}/${total_steps}${CL}"
+  collect_server_config
+  ((current_step++))
+  echo ""
+
+  # Step 2: Database Configuration
+  echo -e "${DIM}Step ${current_step}/${total_steps}${CL}"
+  collect_database_config
+  ((current_step++))
+  echo ""
+
+  # Step 3: IIQ Configuration (if enabled)
+  if [[ "$ENABLE_IIQ" == true ]]; then
+    echo -e "${DIM}Step ${current_step}/${total_steps}${CL}"
+    collect_iiq_config
+    ((current_step++))
+    echo ""
+  fi
+
+  # Steps 4-6: Google Configuration (if enabled)
+  if [[ "$ENABLE_GOOGLE" == true ]]; then
+    echo -e "${DIM}Step ${current_step}/${total_steps}${CL}"
+    collect_google_service_account
+    ((current_step++))
+    echo ""
+
+    echo -e "${DIM}Step ${current_step}/${total_steps}${CL}"
+    collect_google_oauth
+    ((current_step++))
+    echo ""
+
+    echo -e "${DIM}Step ${current_step}/${total_steps}${CL}"
+    collect_access_control
+    ((current_step++))
+    echo ""
+  fi
+
+  # Step 7: Meraki Configuration (if enabled)
+  if [[ "$ENABLE_MERAKI" == true ]]; then
+    echo -e "${DIM}Step ${current_step}/${total_steps}${CL}"
+    collect_meraki_config
+    ((current_step++))
+    echo ""
+  fi
 
   # Generate SECRET_KEY
   SECRET_KEY=$(openssl rand -hex 32)
 
-  # Confirmation
-  echo -e "${YW}Step 8/8: Review Configuration${CL}"
-  echo ""
-  echo -e "  ${BOLD}Server:${CL}"
-  echo -e "    Domain:        $ATLAS_DOMAIN"
-  echo -e "    Email Domain:  $ALLOWED_DOMAIN"
-  echo ""
-  echo -e "  ${BOLD}Incident IQ:${CL}"
-  echo -e "    URL:           $IIQ_BASE_URL"
-  echo -e "    Site ID:       $IIQ_SITE_ID"
-  echo -e "    Product ID:    $IIQ_PRODUCT_ID"
-  echo ""
-  echo -e "  ${BOLD}Google Workspace:${CL}"
-  echo -e "    Admin Email:   $GOOGLE_ADMIN_EMAIL"
-  echo -e "    OAuth Client:  ${GOOGLE_OAUTH_CLIENT_ID:0:20}..."
-  echo ""
-  echo -e "  ${BOLD}Access Control:${CL}"
-  echo -e "    Required Group: $REQUIRED_GROUP"
-  echo ""
-  echo -e "  ${BOLD}Cisco Meraki:${CL}"
-  echo -e "    Org ID:        $MERAKI_ORG_ID"
-  echo ""
-  read -p "  Proceed with installation? [Y/n]: " CONFIRM
+  # Review and Edit Loop
+  review_and_confirm
+}
 
-  if [[ "$CONFIRM" =~ ^[Nn] ]]; then
+# ============================================================================
+# REVIEW AND EDIT SCREEN
+# ============================================================================
+review_and_confirm() {
+  while true; do
     echo ""
-    msg_warn "Installation cancelled by user"
-    exit 0
-  fi
+    echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
+    echo -e "${BOLD}${BL}|                    REVIEW CONFIGURATION                          |${CL}"
+    echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
+    echo ""
+
+    echo -e "  ${BOLD}[1] Server${CL}"
+    echo -e "      Domain:        $ATLAS_DOMAIN"
+    echo -e "      Email Domain:  $ALLOWED_DOMAIN"
+    echo ""
+
+    echo -e "  ${BOLD}[2] Database${CL}"
+    echo -e "      Password:      ${DB_PASSWORD:0:4}****"
+    echo ""
+
+    if [[ "$ENABLE_IIQ" == true ]]; then
+      echo -e "  ${BOLD}[3] Incident IQ${CL}"
+      echo -e "      Instance:      $IIQ_SUBDOMAIN"
+      echo -e "      URL:           $IIQ_BASE_URL"
+      echo -e "      Site ID:       ${IIQ_SITE_ID:0:8}..."
+      echo -e "      Token:         ${IIQ_TOKEN:0:8}..."
+      echo ""
+    fi
+
+    if [[ "$ENABLE_GOOGLE" == true ]]; then
+      echo -e "  ${BOLD}[4] Google Service Account${CL}"
+      echo -e "      Creds Path:    $GOOGLE_CREDS_PATH"
+      echo -e "      Admin Email:   $GOOGLE_ADMIN_EMAIL"
+      echo ""
+
+      echo -e "  ${BOLD}[5] Google OAuth${CL}"
+      echo -e "      Client ID:     ${GOOGLE_OAUTH_CLIENT_ID:0:20}..."
+      echo ""
+
+      echo -e "  ${BOLD}[6] Access Control${CL}"
+      echo -e "      Required Group: $REQUIRED_GROUP"
+      echo ""
+    fi
+
+    if [[ "$ENABLE_MERAKI" == true ]]; then
+      echo -e "  ${BOLD}[7] Cisco Meraki${CL}"
+      echo -e "      Org ID:        $MERAKI_ORG_ID"
+      echo ""
+    fi
+
+    echo -e "${BL}--------------------------------------------------------------------${CL}"
+    echo ""
+    echo -e "  ${BOLD}Options:${CL}"
+    echo -e "    ${GN}Y${CL} - Proceed with installation"
+    echo -e "    ${YW}1-7${CL} - Edit that section"
+    echo -e "    ${RD}N${CL} - Cancel installation"
+    echo ""
+    read -p "  Your choice: " REVIEW_CHOICE
+
+    case "$REVIEW_CHOICE" in
+      [Yy]|"")
+        echo ""
+        msg_ok "Configuration confirmed"
+        break
+        ;;
+      [Nn])
+        echo ""
+        msg_warn "Installation cancelled by user"
+        exit 0
+        ;;
+      1)
+        collect_server_config
+        ;;
+      2)
+        collect_database_config
+        ;;
+      3)
+        if [[ "$ENABLE_IIQ" == true ]]; then
+          collect_iiq_config
+        else
+          echo -e "  ${RD}IIQ is not enabled${CL}"
+        fi
+        ;;
+      4)
+        if [[ "$ENABLE_GOOGLE" == true ]]; then
+          collect_google_service_account
+        else
+          echo -e "  ${RD}Google is not enabled${CL}"
+        fi
+        ;;
+      5)
+        if [[ "$ENABLE_GOOGLE" == true ]]; then
+          collect_google_oauth
+        else
+          echo -e "  ${RD}Google is not enabled${CL}"
+        fi
+        ;;
+      6)
+        if [[ "$ENABLE_GOOGLE" == true ]]; then
+          collect_access_control
+        else
+          echo -e "  ${RD}Google is not enabled${CL}"
+        fi
+        ;;
+      7)
+        if [[ "$ENABLE_MERAKI" == true ]]; then
+          collect_meraki_config
+        else
+          echo -e "  ${RD}Meraki is not enabled${CL}"
+        fi
+        ;;
+      *)
+        echo -e "  ${RD}Invalid choice. Please enter Y, N, or 1-7${CL}"
+        ;;
+    esac
+  done
 }
 
 # ============================================================================
@@ -335,6 +581,10 @@ download_source() {
     else
       msg_error "Failed to download source code from GitHub"
       msg_error "Please check the repository URL: $GITHUB_REPO"
+      msg_error ""
+      msg_error "If this is a private repo, clone it manually first:"
+      msg_error "  git clone https://YOUR_TOKEN@github.com/adukes40/ATLAS.git /opt/atlas"
+      msg_error "Then re-run the installer."
       exit 1
     fi
   fi
@@ -343,7 +593,7 @@ download_source() {
 create_config() {
   msg_info "Creating configuration files"
 
-  # Create backend .env file
+  # Build .env file dynamically based on enabled components
   cat > $ATLAS_DIR/atlas-backend/.env << EOF
 # ATLAS Environment Configuration
 # Generated by ATLAS installer on $(date)
@@ -353,6 +603,11 @@ create_config() {
 # DATABASE
 # =============================================================================
 DATABASE_URL=postgresql://atlas:${DB_PASSWORD}@localhost/atlas
+EOF
+
+  # Add IIQ config if enabled
+  if [[ "$ENABLE_IIQ" == true ]]; then
+    cat >> $ATLAS_DIR/atlas-backend/.env << EOF
 
 # =============================================================================
 # INCIDENT IQ (IIQ) API
@@ -361,18 +616,18 @@ IIQ_URL=${IIQ_BASE_URL}
 IIQ_TOKEN=${IIQ_TOKEN}
 IIQ_SITE_ID=${IIQ_SITE_ID}
 IIQ_PRODUCT_ID=${IIQ_PRODUCT_ID}
+EOF
+  fi
+
+  # Add Google config if enabled
+  if [[ "$ENABLE_GOOGLE" == true ]]; then
+    cat >> $ATLAS_DIR/atlas-backend/.env << EOF
 
 # =============================================================================
 # GOOGLE WORKSPACE API
 # =============================================================================
 GOOGLE_CREDS_PATH=/opt/atlas/atlas-backend/google_credentials.json
 GOOGLE_ADMIN_EMAIL=${GOOGLE_ADMIN_EMAIL}
-
-# =============================================================================
-# CISCO MERAKI API
-# =============================================================================
-MERAKI_API_KEY=${MERAKI_API_KEY}
-MERAKI_ORG_ID=${MERAKI_ORG_ID}
 
 # =============================================================================
 # SECURITY & AUTHENTICATION
@@ -386,11 +641,35 @@ REQUIRED_GROUP=${REQUIRED_GROUP}
 # =============================================================================
 GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID}
 GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}
+EOF
+  fi
+
+  # Add Meraki config if enabled
+  if [[ "$ENABLE_MERAKI" == true ]]; then
+    cat >> $ATLAS_DIR/atlas-backend/.env << EOF
+
+# =============================================================================
+# CISCO MERAKI API
+# =============================================================================
+MERAKI_API_KEY=${MERAKI_API_KEY}
+MERAKI_ORG_ID=${MERAKI_ORG_ID}
+EOF
+  fi
+
+  # Add CORS config
+  cat >> $ATLAS_DIR/atlas-backend/.env << EOF
 
 # =============================================================================
 # CORS
 # =============================================================================
 ALLOWED_ORIGINS=http://${ATLAS_DOMAIN},https://${ATLAS_DOMAIN},http://localhost:5173
+
+# =============================================================================
+# ENABLED COMPONENTS
+# =============================================================================
+ENABLE_IIQ=${ENABLE_IIQ}
+ENABLE_GOOGLE=${ENABLE_GOOGLE}
+ENABLE_MERAKI=${ENABLE_MERAKI}
 EOF
 
   # Set secure permissions on backend .env
@@ -402,15 +681,15 @@ EOF
 # Generated by ATLAS installer on $(date)
 
 # IIQ domain for direct linking in Device 360
-VITE_IIQ_URL=${IIQ_BASE_URL}
+VITE_IIQ_URL=${IIQ_BASE_URL:-}
 EOF
 
-  # Copy Google credentials if provided
-  if [[ -f "$GOOGLE_CREDS_PATH" ]]; then
+  # Copy Google credentials if provided and Google is enabled
+  if [[ "$ENABLE_GOOGLE" == true && -f "$GOOGLE_CREDS_PATH" ]]; then
     cp "$GOOGLE_CREDS_PATH" $ATLAS_DIR/atlas-backend/google_credentials.json
     chmod 600 $ATLAS_DIR/atlas-backend/google_credentials.json
     msg_ok "Google credentials copied"
-  else
+  elif [[ "$ENABLE_GOOGLE" == true ]]; then
     msg_warn "Google credentials file not found at $GOOGLE_CREDS_PATH"
     msg_warn "You'll need to manually copy your service account JSON to:"
     msg_warn "  $ATLAS_DIR/atlas-backend/google_credentials.json"
@@ -450,7 +729,7 @@ setup_nodejs_env() {
 
   cd $ATLAS_DIR/atlas-ui
 
-  npm install --silent 2>/dev/null
+  npm install --silent 2>/dev/null || true
   npm run build --silent 2>/dev/null || true
 
   msg_ok "Frontend built"
@@ -551,17 +830,39 @@ EOF
 setup_cron_jobs() {
   msg_info "Setting up sync cron jobs"
 
+  # Start with header
   cat > /etc/cron.d/atlas << EOF
 # ATLAS Sync Jobs
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
+EOF
+
+  # Add Google sync if enabled
+  if [[ "$ENABLE_GOOGLE" == true ]]; then
+    cat >> /etc/cron.d/atlas << EOF
 # Google sync at 2 AM
 0 2 * * * root $VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/google_bulk_sync.py >> $ATLAS_DIR/logs/google_sync.log 2>&1
 
+EOF
+  fi
+
+  # Add IIQ sync if enabled
+  if [[ "$ENABLE_IIQ" == true ]]; then
+    cat >> /etc/cron.d/atlas << EOF
 # IIQ sync at 3 AM
 0 3 * * * root $VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/iiq_bulk_sync.py >> $ATLAS_DIR/logs/iiq_sync.log 2>&1
+
 EOF
+  fi
+
+  # Add Meraki sync if enabled
+  if [[ "$ENABLE_MERAKI" == true ]]; then
+    cat >> /etc/cron.d/atlas << EOF
+# Meraki sync at 4 AM
+0 4 * * * root $VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/meraki_bulk_sync.py >> $ATLAS_DIR/logs/meraki_sync.log 2>&1
+EOF
+  fi
 
   chmod 644 /etc/cron.d/atlas
 
@@ -622,10 +923,20 @@ print_summary() {
   echo -e "${BOLD}Access ATLAS:${CL}"
   echo -e "  URL: ${BL}http://$ATLAS_DOMAIN${CL}"
   echo ""
-  echo -e "${BOLD}Authentication:${CL}"
-  echo -e "  Users must sign in with @${ALLOWED_DOMAIN} Google accounts"
-  echo -e "  Users must be members of: ${REQUIRED_GROUP}"
+
+  if [[ "$ENABLE_GOOGLE" == true ]]; then
+    echo -e "${BOLD}Authentication:${CL}"
+    echo -e "  Users must sign in with @${ALLOWED_DOMAIN} Google accounts"
+    echo -e "  Users must be members of: ${REQUIRED_GROUP}"
+    echo ""
+  fi
+
+  echo -e "${BOLD}Enabled Components:${CL}"
+  [[ "$ENABLE_IIQ" == true ]] && echo -e "  ${GN}[x]${CL} Incident IQ"
+  [[ "$ENABLE_GOOGLE" == true ]] && echo -e "  ${GN}[x]${CL} Google Workspace"
+  [[ "$ENABLE_MERAKI" == true ]] && echo -e "  ${GN}[x]${CL} Cisco Meraki"
   echo ""
+
   echo -e "${BOLD}Service Commands:${CL}"
   echo -e "  ${DIM}Backend:${CL}  systemctl {start|stop|restart|status} atlas"
   echo ""
@@ -638,19 +949,30 @@ print_summary() {
   echo -e "  ${DIM}Nginx:${CL}       /etc/nginx/sites-available/atlas"
   echo ""
   echo -e "${BOLD}Next Steps:${CL}"
-  echo -e "  1. Run initial IIQ sync:"
-  echo -e "     ${YW}$VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/iiq_bulk_sync.py${CL}"
-  echo ""
-  echo -e "  2. Run initial Google sync:"
-  echo -e "     ${YW}$VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/google_bulk_sync.py${CL}"
-  echo ""
+
+  if [[ "$ENABLE_IIQ" == true ]]; then
+    echo -e "  1. Run initial IIQ sync:"
+    echo -e "     ${YW}$VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/iiq_bulk_sync.py${CL}"
+    echo ""
+  fi
+
+  if [[ "$ENABLE_GOOGLE" == true ]]; then
+    echo -e "  2. Run initial Google sync:"
+    echo -e "     ${YW}$VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/google_bulk_sync.py${CL}"
+    echo ""
+  fi
+
   echo -e "  3. (Recommended) Enable HTTPS with Let's Encrypt:"
   echo -e "     ${YW}certbot --nginx -d $ATLAS_DOMAIN${CL}"
-  echo -e "     Then update Google OAuth redirect URI to use https://"
+  if [[ "$ENABLE_GOOGLE" == true ]]; then
+    echo -e "     Then update Google OAuth redirect URI to use https://"
+  fi
   echo ""
+
   echo -e "${BOLD}Sync Schedule (Cron):${CL}"
-  echo -e "  ${DIM}2:00 AM${CL}  Google devices sync"
-  echo -e "  ${DIM}3:00 AM${CL}  IIQ assets + users sync"
+  [[ "$ENABLE_GOOGLE" == true ]] && echo -e "  ${DIM}2:00 AM${CL}  Google devices sync"
+  [[ "$ENABLE_IIQ" == true ]] && echo -e "  ${DIM}3:00 AM${CL}  IIQ assets + users sync"
+  [[ "$ENABLE_MERAKI" == true ]] && echo -e "  ${DIM}4:00 AM${CL}  Meraki network sync"
   echo ""
   echo -e "${DIM}Installation completed at $(date)${CL}"
   echo ""
@@ -665,6 +987,7 @@ main() {
   check_os
 
   echo ""
+  select_components
   collect_credentials
 
   echo ""
