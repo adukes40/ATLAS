@@ -48,9 +48,9 @@ header_info() {
 
 Asset, Telemetry, Location, & Analytics System
 EOF
-  echo -e "${BL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CL}"
+  echo -e "${BL}--------------------------------------------------------------------${CL}"
   echo -e "${DIM}IT Operations Platform for K-12 School Districts${CL}"
-  echo -e "${BL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CL}"
+  echo -e "${BL}--------------------------------------------------------------------${CL}"
   echo ""
 }
 
@@ -108,31 +108,43 @@ GITHUB_BRANCH="main"
 # ============================================================================
 collect_credentials() {
   echo ""
-  echo -e "${BOLD}${BL}┌─────────────────────────────────────────────────────────────────┐${CL}"
-  echo -e "${BOLD}${BL}│                    CONFIGURATION WIZARD                         │${CL}"
-  echo -e "${BOLD}${BL}└─────────────────────────────────────────────────────────────────┘${CL}"
+  echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
+  echo -e "${BOLD}${BL}|                    CONFIGURATION WIZARD                          |${CL}"
+  echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
   echo ""
 
   # Domain/Hostname
-  echo -e "${YW}Step 1/6: Server Configuration${CL}"
+  echo -e "${YW}Step 1/8: Server Configuration${CL}"
   read -p "  Enter your domain or hostname (e.g., atlas.yourdistrict.org): " ATLAS_DOMAIN
   if [[ -z "$ATLAS_DOMAIN" ]]; then
     ATLAS_DOMAIN="localhost"
   fi
+
+  # Extract just the domain part for OAuth
+  ALLOWED_DOMAIN=$(echo "$ATLAS_DOMAIN" | sed 's/.*\.\([^.]*\.[^.]*\)$/\1/' | sed 's/^[^.]*\.//')
+  if [[ -z "$ALLOWED_DOMAIN" || "$ALLOWED_DOMAIN" == "$ATLAS_DOMAIN" ]]; then
+    read -p "  Enter your email domain (e.g., yourdistrict.org): " ALLOWED_DOMAIN
+  else
+    echo -e "  ${DIM}Detected email domain: $ALLOWED_DOMAIN${CL}"
+    read -p "  Press Enter to confirm or type a different domain: " DOMAIN_OVERRIDE
+    if [[ -n "$DOMAIN_OVERRIDE" ]]; then
+      ALLOWED_DOMAIN="$DOMAIN_OVERRIDE"
+    fi
+  fi
   echo ""
 
   # PostgreSQL Password
-  echo -e "${YW}Step 2/6: Database Configuration${CL}"
-  read -sp "  Enter PostgreSQL password for atlas user: " DB_PASSWORD
+  echo -e "${YW}Step 2/8: Database Configuration${CL}"
+  read -sp "  Enter PostgreSQL password for atlas user (leave blank to generate): " DB_PASSWORD
   echo ""
   if [[ -z "$DB_PASSWORD" ]]; then
     DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
-    echo -e "  ${DIM}Generated random password${CL}"
+    echo -e "  ${DIM}Generated secure password${CL}"
   fi
   echo ""
 
   # IIQ Configuration
-  echo -e "${YW}Step 3/6: Incident IQ (IIQ) Configuration${CL}"
+  echo -e "${YW}Step 3/8: Incident IQ (IIQ) Configuration${CL}"
   echo ""
   echo -e "  ${DIM}Where to find these values:${CL}"
   echo -e "  ${DIM}  - Login to IIQ as Admin${CL}"
@@ -155,39 +167,67 @@ collect_credentials() {
     echo -e "  ${DIM}Using default Chromebooks Product ID${CL}"
   fi
   echo ""
-  echo -e "  ${DIM}Fee Field ID: Custom field UUID for fee tracking (optional).${CL}"
-  echo -e "  ${DIM}  Find at Admin > Custom Fields > click Fee Tracker field${CL}"
-  read -p "  IIQ Fee Field ID (press Enter to skip): " IIQ_FEE_FIELD_ID
-  echo ""
 
-  # Google Configuration
-  echo -e "${YW}Step 4/6: Google Workspace Configuration${CL}"
-  echo -e "  ${DIM}You'll need a Service Account JSON file with Directory API access${CL}"
+  # Google Service Account Configuration
+  echo -e "${YW}Step 4/8: Google Workspace - Service Account (for data sync)${CL}"
+  echo -e "  ${DIM}You'll need a Service Account JSON file with Admin SDK access${CL}"
+  echo -e "  ${DIM}Required scopes (domain-wide delegation):${CL}"
+  echo -e "  ${DIM}  - https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly${CL}"
+  echo -e "  ${DIM}  - https://www.googleapis.com/auth/admin.directory.user.readonly${CL}"
+  echo -e "  ${DIM}  - https://www.googleapis.com/auth/admin.directory.group.member.readonly${CL}"
+  echo ""
   read -p "  Enter path to Google Service Account JSON file: " GOOGLE_CREDS_PATH
   read -p "  Enter admin email for domain-wide delegation: " GOOGLE_ADMIN_EMAIL
   echo ""
 
+  # Google OAuth Configuration
+  echo -e "${YW}Step 5/8: Google Workspace - OAuth (for user login)${CL}"
+  echo -e "  ${DIM}Create OAuth 2.0 Client ID at Google Cloud Console:${CL}"
+  echo -e "  ${DIM}  - APIs & Services > Credentials > Create Credentials > OAuth client ID${CL}"
+  echo -e "  ${DIM}  - Application type: Web application${CL}"
+  echo -e "  ${DIM}  - Authorized redirect URI: http://${ATLAS_DOMAIN}/auth/callback${CL}"
+  echo ""
+  read -p "  Google OAuth Client ID: " GOOGLE_OAUTH_CLIENT_ID
+  read -sp "  Google OAuth Client Secret: " GOOGLE_OAUTH_CLIENT_SECRET
+  echo ""
+  echo ""
+
+  # Access Control Group
+  echo -e "${YW}Step 6/8: Access Control${CL}"
+  echo -e "  ${DIM}Create a Google Group to control who can access ATLAS${CL}"
+  echo -e "  ${DIM}Only members of this group will be able to sign in${CL}"
+  echo ""
+  read -p "  Google Group email for access control (e.g., atlas-users@${ALLOWED_DOMAIN}): " REQUIRED_GROUP
+  echo ""
+
   # Meraki Configuration
-  echo -e "${YW}Step 5/6: Cisco Meraki Configuration${CL}"
+  echo -e "${YW}Step 7/8: Cisco Meraki Configuration${CL}"
   read -sp "  Enter Meraki API Key: " MERAKI_API_KEY
   echo ""
   read -p "  Enter Meraki Organization ID: " MERAKI_ORG_ID
   echo ""
 
+  # Generate SECRET_KEY
+  SECRET_KEY=$(openssl rand -hex 32)
+
   # Confirmation
-  echo -e "${YW}Step 6/6: Review Configuration${CL}"
+  echo -e "${YW}Step 8/8: Review Configuration${CL}"
   echo ""
   echo -e "  ${BOLD}Server:${CL}"
   echo -e "    Domain:        $ATLAS_DOMAIN"
+  echo -e "    Email Domain:  $ALLOWED_DOMAIN"
   echo ""
   echo -e "  ${BOLD}Incident IQ:${CL}"
   echo -e "    URL:           $IIQ_BASE_URL"
   echo -e "    Site ID:       $IIQ_SITE_ID"
   echo -e "    Product ID:    $IIQ_PRODUCT_ID"
-  echo -e "    Fee Field:     ${IIQ_FEE_FIELD_ID:-Not configured}"
   echo ""
   echo -e "  ${BOLD}Google Workspace:${CL}"
   echo -e "    Admin Email:   $GOOGLE_ADMIN_EMAIL"
+  echo -e "    OAuth Client:  ${GOOGLE_OAUTH_CLIENT_ID:0:20}..."
+  echo ""
+  echo -e "  ${BOLD}Access Control:${CL}"
+  echo -e "    Required Group: $REQUIRED_GROUP"
   echo ""
   echo -e "  ${BOLD}Cisco Meraki:${CL}"
   echo -e "    Org ID:        $MERAKI_ORG_ID"
@@ -255,9 +295,9 @@ setup_database() {
 setup_directories() {
   msg_info "Creating directory structure"
 
-  mkdir -p $ATLAS_DIR/{atlas-backend,atlas-ui,logs,backups}
+  mkdir -p $ATLAS_DIR/{atlas-backend,atlas-ui,logs,backups,docs}
   mkdir -p $ATLAS_DIR/atlas-backend/{app,scripts}
-  mkdir -p $ATLAS_DIR/atlas-backend/app/{routers,services}
+  mkdir -p $ATLAS_DIR/atlas-backend/app/{routers,services,middleware}
   mkdir -p $ATLAS_DIR/atlas-ui/src
 
   msg_ok "Directory structure created"
@@ -281,9 +321,9 @@ download_source() {
       cp -r /tmp/atlas-source/atlas-ui/* $ATLAS_DIR/atlas-ui/
     fi
 
-    # Copy sync scripts if they exist
-    if [[ -d "/tmp/atlas-source/scripts" ]]; then
-      cp -r /tmp/atlas-source/scripts/* $ATLAS_DIR/atlas-backend/scripts/
+    # Copy docs
+    if [[ -d "/tmp/atlas-source/docs" ]]; then
+      cp -r /tmp/atlas-source/docs/* $ATLAS_DIR/docs/
     fi
 
     rm -rf /tmp/atlas-source
@@ -303,86 +343,78 @@ download_source() {
 create_config() {
   msg_info "Creating configuration files"
 
-  # Create .env file
+  # Create backend .env file
   cat > $ATLAS_DIR/atlas-backend/.env << EOF
-# ATLAS Configuration
-# Generated by installer on $(date)
+# ATLAS Environment Configuration
+# Generated by ATLAS installer on $(date)
+# This file contains sensitive credentials - DO NOT commit to git
 
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=atlas
-DB_USER=atlas
-DB_PASSWORD=$DB_PASSWORD
+# =============================================================================
+# DATABASE
+# =============================================================================
+DATABASE_URL=postgresql://atlas:${DB_PASSWORD}@localhost/atlas
 
-# IIQ API
-IIQ_BASE_URL=$IIQ_BASE_URL
-IIQ_SITE_ID=$IIQ_SITE_ID
-IIQ_TOKEN=$IIQ_TOKEN
-IIQ_PRODUCT_ID=$IIQ_PRODUCT_ID
-IIQ_FEE_FIELD_ID=${IIQ_FEE_FIELD_ID:-}
+# =============================================================================
+# INCIDENT IQ (IIQ) API
+# =============================================================================
+IIQ_URL=${IIQ_BASE_URL}
+IIQ_TOKEN=${IIQ_TOKEN}
+IIQ_SITE_ID=${IIQ_SITE_ID}
+IIQ_PRODUCT_ID=${IIQ_PRODUCT_ID}
 
-# Google API
-GOOGLE_CREDENTIALS_FILE=$ATLAS_DIR/atlas-backend/credentials/google-service-account.json
-GOOGLE_ADMIN_EMAIL=$GOOGLE_ADMIN_EMAIL
+# =============================================================================
+# GOOGLE WORKSPACE API
+# =============================================================================
+GOOGLE_CREDS_PATH=/opt/atlas/atlas-backend/google_credentials.json
+GOOGLE_ADMIN_EMAIL=${GOOGLE_ADMIN_EMAIL}
 
-# Meraki API
-MERAKI_API_KEY=$MERAKI_API_KEY
-MERAKI_ORG_ID=$MERAKI_ORG_ID
+# =============================================================================
+# CISCO MERAKI API
+# =============================================================================
+MERAKI_API_KEY=${MERAKI_API_KEY}
+MERAKI_ORG_ID=${MERAKI_ORG_ID}
 
-# Server
-ATLAS_DOMAIN=$ATLAS_DOMAIN
-ALLOWED_ORIGINS=http://$ATLAS_DOMAIN,https://$ATLAS_DOMAIN
-ENVIRONMENT=production
+# =============================================================================
+# SECURITY & AUTHENTICATION
+# =============================================================================
+SECRET_KEY=${SECRET_KEY}
+ALLOWED_DOMAIN=${ALLOWED_DOMAIN}
+REQUIRED_GROUP=${REQUIRED_GROUP}
+
+# =============================================================================
+# GOOGLE OAUTH
+# =============================================================================
+GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID}
+GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}
+
+# =============================================================================
+# CORS
+# =============================================================================
+ALLOWED_ORIGINS=http://${ATLAS_DOMAIN},https://${ATLAS_DOMAIN},http://localhost:5173
+EOF
+
+  # Set secure permissions on backend .env
+  chmod 600 $ATLAS_DIR/atlas-backend/.env
+
+  # Create frontend .env file (for Vite build-time variables)
+  cat > $ATLAS_DIR/atlas-ui/.env << EOF
+# ATLAS Frontend Configuration
+# Generated by ATLAS installer on $(date)
+
+# IIQ domain for direct linking in Device 360
+VITE_IIQ_URL=${IIQ_BASE_URL}
 EOF
 
   # Copy Google credentials if provided
   if [[ -f "$GOOGLE_CREDS_PATH" ]]; then
-    mkdir -p $ATLAS_DIR/atlas-backend/credentials
-    cp "$GOOGLE_CREDS_PATH" $ATLAS_DIR/atlas-backend/credentials/google-service-account.json
-    chmod 600 $ATLAS_DIR/atlas-backend/credentials/google-service-account.json
+    cp "$GOOGLE_CREDS_PATH" $ATLAS_DIR/atlas-backend/google_credentials.json
+    chmod 600 $ATLAS_DIR/atlas-backend/google_credentials.json
+    msg_ok "Google credentials copied"
+  else
+    msg_warn "Google credentials file not found at $GOOGLE_CREDS_PATH"
+    msg_warn "You'll need to manually copy your service account JSON to:"
+    msg_warn "  $ATLAS_DIR/atlas-backend/google_credentials.json"
   fi
-
-  # Create Python config file
-  cat > $ATLAS_DIR/atlas-backend/app/config.py << 'PYEOF'
-"""
-ATLAS Configuration
-Loads settings from environment variables
-"""
-import os
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
-
-# Database
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "atlas")
-DB_USER = os.getenv("DB_USER", "atlas")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-
-# IIQ API
-IIQ_URL = os.getenv("IIQ_BASE_URL", "")
-IIQ_TOKEN = os.getenv("IIQ_TOKEN", "")
-IIQ_SITE_ID = os.getenv("IIQ_SITE_ID", "")
-IIQ_PRODUCT_ID = os.getenv("IIQ_PRODUCT_ID", "88df910c-91aa-e711-80c2-0004ffa00050")
-IIQ_FEE_FIELD_ID = os.getenv("IIQ_FEE_FIELD_ID", "")
-
-# Google API
-GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "")
-GOOGLE_ADMIN_EMAIL = os.getenv("GOOGLE_ADMIN_EMAIL", "")
-
-# Meraki API
-MERAKI_API_KEY = os.getenv("MERAKI_API_KEY", "")
-MERAKI_ORG_ID = os.getenv("MERAKI_ORG_ID", "")
-
-# Server
-ATLAS_DOMAIN = os.getenv("ATLAS_DOMAIN", "localhost")
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost").split(",")
-PYEOF
 
   msg_ok "Configuration files created"
 }
@@ -403,61 +435,25 @@ setup_python_env() {
     httpx \
     google-api-python-client \
     google-auth \
-    meraki \
     python-multipart \
-    aiofiles
+    aiofiles \
+    authlib \
+    itsdangerous \
+    slowapi \
+    requests
 
   msg_ok "Python environment configured"
 }
 
 setup_nodejs_env() {
-  msg_info "Installing Node.js dependencies"
+  msg_info "Installing Node.js dependencies and building frontend"
 
   cd $ATLAS_DIR/atlas-ui
-
-  # Update IIQ domain in frontend source before building
-  if [[ -f "src/pages/Device360.jsx" ]]; then
-    sed -i "s|https://crsd.incidentiq.com|$IIQ_BASE_URL|g" src/pages/Device360.jsx
-  fi
-
-  # Create package.json if it doesn't exist
-  if [[ ! -f package.json ]]; then
-    cat > package.json << 'EOF'
-{
-  "name": "atlas-ui",
-  "private": true,
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "axios": "^1.6.0",
-    "lucide-react": "^0.300.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0",
-    "recharts": "^2.10.0"
-  },
-  "devDependencies": {
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "@vitejs/plugin-react": "^4.2.0",
-    "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32",
-    "tailwindcss": "^3.4.0",
-    "vite": "^5.0.0"
-  }
-}
-EOF
-  fi
 
   npm install --silent 2>/dev/null
   npm run build --silent 2>/dev/null || true
 
-  msg_ok "Node.js dependencies installed"
+  msg_ok "Frontend built"
 }
 
 create_systemd_services() {
@@ -498,6 +494,12 @@ server {
     listen 80;
     server_name $ATLAS_DOMAIN;
 
+    # Security headers
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
     # Frontend (Vite build output)
     location / {
         root $ATLAS_DIR/atlas-ui/dist;
@@ -514,6 +516,16 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_read_timeout 300s;
         proxy_connect_timeout 75s;
+    }
+
+    # Authentication endpoints (Google OAuth)
+    location /auth {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
     # Static assets caching
@@ -603,12 +615,16 @@ start_services() {
 
 print_summary() {
   echo ""
-  echo -e "${GN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CL}"
+  echo -e "${GN}--------------------------------------------------------------------${CL}"
   echo -e "${GN}                    INSTALLATION COMPLETE!                          ${CL}"
-  echo -e "${GN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CL}"
+  echo -e "${GN}--------------------------------------------------------------------${CL}"
   echo ""
   echo -e "${BOLD}Access ATLAS:${CL}"
   echo -e "  URL: ${BL}http://$ATLAS_DOMAIN${CL}"
+  echo ""
+  echo -e "${BOLD}Authentication:${CL}"
+  echo -e "  Users must sign in with @${ALLOWED_DOMAIN} Google accounts"
+  echo -e "  Users must be members of: ${REQUIRED_GROUP}"
   echo ""
   echo -e "${BOLD}Service Commands:${CL}"
   echo -e "  ${DIM}Backend:${CL}  systemctl {start|stop|restart|status} atlas"
@@ -628,8 +644,9 @@ print_summary() {
   echo -e "  2. Run initial Google sync:"
   echo -e "     ${YW}$VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/google_bulk_sync.py${CL}"
   echo ""
-  echo -e "  3. (Optional) Enable HTTPS with Let's Encrypt:"
+  echo -e "  3. (Recommended) Enable HTTPS with Let's Encrypt:"
   echo -e "     ${YW}certbot --nginx -d $ATLAS_DOMAIN${CL}"
+  echo -e "     Then update Google OAuth redirect URI to use https://"
   echo ""
   echo -e "${BOLD}Sync Schedule (Cron):${CL}"
   echo -e "  ${DIM}2:00 AM${CL}  Google devices sync"
@@ -651,9 +668,9 @@ main() {
   collect_credentials
 
   echo ""
-  echo -e "${BOLD}${BL}┌─────────────────────────────────────────────────────────────────┐${CL}"
-  echo -e "${BOLD}${BL}│                    INSTALLING ATLAS                             │${CL}"
-  echo -e "${BOLD}${BL}└─────────────────────────────────────────────────────────────────┘${CL}"
+  echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
+  echo -e "${BOLD}${BL}|                    INSTALLING ATLAS                              |${CL}"
+  echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
   echo ""
 
   install_dependencies

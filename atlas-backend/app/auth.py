@@ -23,7 +23,7 @@ load_dotenv()
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
 SECRET_KEY = os.getenv("SECRET_KEY")
-ALLOWED_DOMAIN = os.getenv("ALLOWED_DOMAIN", "cr.k12.de.us")
+ALLOWED_DOMAIN = os.getenv("ALLOWED_DOMAIN")  # Required - no default
 REQUIRED_GROUP = os.getenv("REQUIRED_GROUP")
 GOOGLE_CREDS_PATH = os.getenv("GOOGLE_CREDS_PATH", "google_credentials.json")
 GOOGLE_ADMIN_EMAIL = os.getenv("GOOGLE_ADMIN_EMAIL")

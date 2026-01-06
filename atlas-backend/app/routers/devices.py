@@ -4,7 +4,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.database import get_db
-from app.models import IIQAsset, GoogleDevice, NetworkCache, IIQUser
+from app.models import IIQAsset, GoogleDevice, NetworkCache, IIQUser, MerakiClient, MerakiNetwork
 from app.schemas import DeviceResponse
 from app.services.iiq_sync import IIQConnector
 from app.services.google_sync import GoogleConnector
@@ -203,13 +203,42 @@ def get_device_360(request: Request, query: str, db: Session = Depends(get_db)):
         }
 
     meraki_data = None
-    if network_record:
-        meraki_data = {
-            "ap_name": network_record.last_ap_name,
-            "ip_address": network_record.ip_address,
-            "last_seen": network_record.last_seen,
-            "ssid": network_record.ssid
-        }
+    if target_mac:
+        # Normalize MAC for queries and display
+        clean_mac = target_mac.strip().lower().replace(":", "").replace("-", "")
+        # Format MAC with colons for display (e.g., 64:6e:e0:17:0f:a7)
+        formatted_mac = ":".join(clean_mac[i:i+2] for i in range(0, 12, 2)) if len(clean_mac) == 12 else target_mac
+
+        # Query enriched data from meraki_clients (bulk sync data)
+        meraki_client = db.query(MerakiClient).filter(MerakiClient.mac == clean_mac).first()
+
+        # Build response - prefer live lookup for AP location, use bulk sync for enriched data
+        if network_record or meraki_client:
+            # Get network URL for direct dashboard linking
+            net_id = network_record.network_id if network_record else (meraki_client.last_network_id if meraki_client else None)
+            network_url = None
+            if net_id:
+                meraki_network = db.query(MerakiNetwork).filter(MerakiNetwork.network_id == net_id).first()
+                if meraki_network and meraki_network.url:
+                    network_url = meraki_network.url
+
+            meraki_data = {
+                # MAC address for display and linking
+                "mac_address": formatted_mac,
+                # Meraki identifiers for direct dashboard linking
+                "client_id": network_record.client_id if network_record else None,
+                "network_id": net_id,
+                "network_url": network_url,
+                # Live lookup data (current location)
+                "ap_name": network_record.last_ap_name if network_record else (meraki_client.last_ap_name if meraki_client else None),
+                "ip_address": network_record.ip_address if network_record else None,
+                "ssid": network_record.ssid if network_record else (meraki_client.last_ssid if meraki_client else None),
+                # Use last_seen from meraki_clients (source timestamp from Meraki API)
+                "last_seen": meraki_client.last_seen if meraki_client else (network_record.last_seen if network_record else None),
+                # Enriched data from bulk sync
+                "group_policy": meraki_client.psk_group if meraki_client else None,
+                "rssi": meraki_client.rssi if meraki_client else None,
+            }
 
     # 5. Detect Conflicts
     detected_conflicts = detect_conflicts(iiq_record, google_record)

@@ -63,10 +63,16 @@ class GoogleData(BaseModel):
     raw_reports: Optional[Dict[str, Any]] = {}
 
 class NetworkData(BaseModel):
+    mac_address: Optional[str]
+    client_id: Optional[str]
+    network_id: Optional[str]
+    network_url: Optional[str]
     ap_name: Optional[str]
     ip_address: Optional[str]
     last_seen: Optional[datetime]
     ssid: Optional[str]
+    group_policy: Optional[str]
+    rssi: Optional[int]
 
 # --- AGGREGATE RESPONSE ---
 class DeviceSources(BaseModel):

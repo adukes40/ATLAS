@@ -31,7 +31,7 @@ MERAKI_ORG_ID = os.getenv("MERAKI_ORG_ID")
 # Security Configuration (for OAuth - Phase 2)
 # =============================================================================
 SECRET_KEY = os.getenv("SECRET_KEY")
-ALLOWED_DOMAIN = os.getenv("ALLOWED_DOMAIN", "cr.k12.de.us")
+ALLOWED_DOMAIN = os.getenv("ALLOWED_DOMAIN")  # Required - set in .env
 REQUIRED_GROUP = os.getenv("REQUIRED_GROUP")
 
 # =============================================================================

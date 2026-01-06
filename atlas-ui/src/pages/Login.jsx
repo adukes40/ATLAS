@@ -63,7 +63,7 @@ export default function Login() {
             Sign in to continue
           </h2>
           <p className="text-slate-500 dark:text-slate-400 text-sm">
-            Use your Caesar Rodney Google account
+            Use your district Google account
           </p>
         </div>
 
@@ -96,13 +96,13 @@ export default function Login() {
 
         {/* Domain Notice */}
         <p className="mt-6 text-center text-xs text-slate-400 dark:text-slate-500">
-          Restricted to @cr.k12.de.us accounts
+          Restricted to authorized district accounts
         </p>
       </div>
 
       {/* Footer */}
       <p className="mt-8 text-xs text-slate-400 dark:text-slate-600">
-        Caesar Rodney School District IT
+        ATLAS - IT Operations Platform
       </p>
     </div>
   )

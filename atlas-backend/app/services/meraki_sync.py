@@ -127,13 +127,26 @@ class MerakiConnector:
                     if not ap_name:
                         ap_name = record.get("network", {}).get("name", "Unknown")
 
+                    # Get the actual client ID from the network-specific endpoint
+                    client_id = None
+                    if network_id:
+                        try:
+                            client_url = f"{self.base_url}/networks/{network_id}/clients/{formatted_mac}"
+                            client_resp = requests.get(client_url, headers=self.headers, timeout=10)
+                            if client_resp.status_code == 200:
+                                client_data = client_resp.json()
+                                client_id = client_data.get("id")
+                        except Exception as e:
+                            print(f"[Meraki] Client ID lookup error: {e}")
+
                     return {
+                        "client_id": client_id,
                         "ap_name": ap_name,
                         "last_seen": record.get("lastSeen"),
                         "ssid": record.get("ssid"),
                         "ip_address": record.get("ip"),
                         "vlan": record.get("vlan"),
-                        "network_id": record.get("network", {}).get("id")
+                        "network_id": network_id
                     }
             elif resp.status_code == 404:
                 print(f"[Meraki] MAC {formatted_mac} not found")
@@ -154,33 +167,62 @@ class MerakiConnector:
         if not raw_data:
             return {"status": "error", "message": "Device not found in Meraki wireless networks"}
 
-        # Parse last_seen timestamp
+        # Parse last_seen timestamp - use the actual timestamp from Meraki, never fall back to now
         last_seen = None
-        if raw_data.get("last_seen"):
+        raw_last_seen = raw_data.get("last_seen")
+        if raw_last_seen:
             try:
-                # Meraki returns ISO format timestamps
-                last_seen = datetime.fromisoformat(
-                    raw_data["last_seen"].replace("Z", "+00:00")
-                )
-            except:
-                last_seen = datetime.utcnow()
-        else:
-            last_seen = datetime.utcnow()
+                # Meraki returns Unix timestamp (epoch seconds) for /clients/search endpoint
+                if isinstance(raw_last_seen, (int, float)):
+                    last_seen = datetime.utcfromtimestamp(raw_last_seen)
+                elif isinstance(raw_last_seen, str):
+                    # Try parsing as Unix timestamp first (string representation)
+                    if raw_last_seen.isdigit():
+                        last_seen = datetime.utcfromtimestamp(int(raw_last_seen))
+                    else:
+                        # Fall back to ISO format for other endpoints
+                        last_seen = datetime.fromisoformat(
+                            raw_last_seen.replace("Z", "+00:00")
+                        )
+            except Exception as e:
+                print(f"[Meraki] Failed to parse last_seen timestamp: {raw_last_seen} - {e}")
+                last_seen = None
 
         # Normalize MAC for storage
         clean_mac = mac.strip().lower().replace(":", "").replace("-", "")
 
-        cache_entry = NetworkCache(
-            mac_address=clean_mac,
-            last_ap_name=raw_data.get("ap_name"),
-            ip_address=raw_data.get("ip_address"),
-            ssid=raw_data.get("ssid"),
-            vlan=raw_data.get("vlan"),
-            last_seen=last_seen
-        )
+        # Check if we already have a record - preserve existing last_seen if we don't have a new valid one
+        existing = db.query(NetworkCache).filter(NetworkCache.mac_address == clean_mac).first()
+
+        if existing:
+            # Update existing record, preserve last_seen if we don't have a valid new one
+            existing.client_id = raw_data.get("client_id")
+            existing.network_id = raw_data.get("network_id")
+            existing.last_ap_name = raw_data.get("ap_name")
+            existing.ip_address = raw_data.get("ip_address")
+            existing.ssid = raw_data.get("ssid")
+            existing.vlan = raw_data.get("vlan")
+            if last_seen:
+                existing.last_seen = last_seen
+            # else: keep the existing last_seen value
+        else:
+            # New record - only create if we have a valid last_seen
+            if not last_seen:
+                return {"status": "warning", "message": "No valid last_seen timestamp from Meraki", "ap_name": raw_data.get("ap_name")}
+
+            cache_entry = NetworkCache(
+                mac_address=clean_mac,
+                client_id=raw_data.get("client_id"),
+                network_id=raw_data.get("network_id"),
+                last_ap_name=raw_data.get("ap_name"),
+                ip_address=raw_data.get("ip_address"),
+                ssid=raw_data.get("ssid"),
+                vlan=raw_data.get("vlan"),
+                last_seen=last_seen
+            )
+            db.add(cache_entry)
 
         try:
-            db.merge(cache_entry)
             db.commit()
             return {"status": "success", "mac": mac, "ap_name": raw_data.get("ap_name")}
         except Exception as e:

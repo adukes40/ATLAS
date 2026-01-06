@@ -192,6 +192,10 @@ class NetworkCache(Base):
 
     mac_address: Mapped[str] = mapped_column(String, primary_key=True, index=True)
 
+    # Meraki identifiers for direct linking
+    client_id: Mapped[Optional[str]] = mapped_column(String)
+    network_id: Mapped[Optional[str]] = mapped_column(String)
+
     # Location Data
     ip_address: Mapped[Optional[str]] = mapped_column(String)
     last_ap_name: Mapped[Optional[str]] = mapped_column(String)
@@ -212,6 +216,7 @@ class MerakiNetwork(Base):
 
     network_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String)
+    url: Mapped[Optional[str]] = mapped_column(String)  # Dashboard URL for direct linking
     product_types: Mapped[list] = mapped_column(JSON, default=[])
     tags: Mapped[list] = mapped_column(JSON, default=[])
     time_zone: Mapped[Optional[str]] = mapped_column(String)
@@ -286,6 +291,7 @@ class MerakiClient(Base):
     usage_sent: Mapped[Optional[int]] = mapped_column(BigInteger)  # bytes
     usage_recv: Mapped[Optional[int]] = mapped_column(BigInteger)  # bytes
     psk_group: Mapped[Optional[str]] = mapped_column(String)
+    rssi: Mapped[Optional[int]] = mapped_column(Integer)  # Signal strength in dBm
     last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

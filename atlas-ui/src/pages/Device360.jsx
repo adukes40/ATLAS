@@ -8,7 +8,8 @@ import {
 } from 'lucide-react'
 
 // --- CONFIGURATION ---
-const IIQ_DOMAIN = "https://crsd.incidentiq.com";
+// IIQ domain is loaded from environment variable (set in .env or at build time)
+const IIQ_DOMAIN = import.meta.env.VITE_IIQ_URL || "";
 
 export default function Device360() {
   const [serial, setSerial] = useState('')
@@ -67,8 +68,14 @@ export default function Device360() {
 
   const formatDateTime = (timestamp) => {
     if (!timestamp) return 'Unknown';
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('en-US', {
+    // Handle timestamp - ensure it's treated as UTC if no timezone specified
+    let dateStr = timestamp;
+    if (typeof timestamp === 'string' && !timestamp.endsWith('Z') && !timestamp.includes('+') && !timestamp.includes('-', 10)) {
+      dateStr = timestamp + 'Z';
+    }
+    const date = new Date(dateStr);
+    return date.toLocaleString('en-US', {
+      timeZone: 'America/New_York',
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -76,6 +83,15 @@ export default function Device360() {
       minute: '2-digit',
       hour12: true
     });
+  };
+
+  const getSignalStrengthLabel = (rssi) => {
+    if (!rssi) return null;
+    // RSSI typically ranges from -30 (excellent) to -90 (poor)
+    if (rssi >= -50) return { label: 'Excellent', color: 'text-emerald-500' };
+    if (rssi >= -60) return { label: 'Good', color: 'text-emerald-500' };
+    if (rssi >= -70) return { label: 'Fair', color: 'text-amber-500' };
+    return { label: 'Poor', color: 'text-red-500' };
   };
 
   const calculatePercent = (free, total) => {
@@ -430,20 +446,53 @@ export default function Device360() {
                                 <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm">
                                     <Wifi className="h-4 w-4 text-purple-500" />
                                 </div>
-                                <div>
+                                <div className="flex-1">
                                     <p className="text-[10px] font-bold text-purple-600/70 dark:text-purple-400/70 uppercase">Connected AP</p>
                                     <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{data.sources.meraki.ap_name}</p>
                                 </div>
+                                {data.sources.meraki.rssi && (
+                                    <div className="text-right">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase">Signal</p>
+                                        <p className={`text-sm font-bold ${getSignalStrengthLabel(data.sources.meraki.rssi)?.color}`}>
+                                            {getSignalStrengthLabel(data.sources.meraki.rssi)?.label}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
-                            {data.sources.meraki.last_seen && (
-                                <p className="text-xs text-slate-500 mt-2 pl-11">
-                                    Last Seen: {formatDateTime(data.sources.meraki.last_seen)}
-                                </p>
-                            )}
-                            {data.sources.meraki.ssid && (
-                                <p className="text-xs text-slate-500 pl-11">
-                                    SSID: {data.sources.meraki.ssid}
-                                </p>
+                            <div className="mt-2 pl-11 space-y-0.5">
+                                {data.sources.meraki.last_seen && (
+                                    <p className="text-xs text-slate-500">
+                                        Last Seen: {formatDateTime(data.sources.meraki.last_seen)}
+                                    </p>
+                                )}
+                                {data.sources.meraki.ssid && (
+                                    <p className="text-xs text-slate-500">
+                                        SSID: {data.sources.meraki.ssid}
+                                    </p>
+                                )}
+                                {data.sources.meraki.group_policy && (
+                                    <p className="text-xs text-slate-500">
+                                        Group Policy: <span className="font-medium text-slate-600 dark:text-slate-400">{data.sources.meraki.group_policy}</span>
+                                    </p>
+                                )}
+                                {data.sources.meraki.mac_address && (
+                                    <p className="text-xs text-slate-500">
+                                        MAC: <span className="font-mono text-slate-600 dark:text-slate-400">{data.sources.meraki.mac_address}</span>
+                                    </p>
+                                )}
+                            </div>
+                            {/* Meraki Dashboard Link */}
+                            {data.sources.meraki.network_url && data.sources.meraki.client_id && (
+                                <div className="mt-3 pl-11">
+                                    <a
+                                        href={`${data.sources.meraki.network_url.replace('/manage/clients', '/manage/usage/list')}#c=${data.sources.meraki.client_id}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold uppercase rounded-lg transition shadow-sm"
+                                    >
+                                        Meraki <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                </div>
                             )}
                         </div>
                     ) : (
@@ -480,7 +529,7 @@ export default function Device360() {
                         </div>
                         <div className="flex justify-between items-center text-sm pt-2 border-t border-slate-200 dark:border-slate-700">
                             <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-2">
-                                <RefreshCw className="h-3 w-3" /> Google Sync
+                                <RefreshCw className="h-3 w-3" /> Last Policy Sync
                             </span>
                             <span className="text-xs text-slate-600 dark:text-slate-300">
                                 {formatDateTime(data.sources.google?.last_sync)}

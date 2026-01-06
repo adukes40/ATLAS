@@ -65,6 +65,7 @@ class MerakiBulkSync:
                 record = MerakiNetwork(
                     network_id=net["id"],
                     name=net.get("name", ""),
+                    url=net.get("url"),
                     product_types=net.get("productTypes", []),
                     tags=net.get("tags", []),
                     time_zone=net.get("timeZone"),
@@ -219,9 +220,9 @@ class MerakiBulkSync:
 
         for network in networks:
             try:
-                # Get clients from last 24 hours
+                # Get wireless clients from last 24 hours (includes rssi)
                 clients = self._get(
-                    f"/networks/{network.network_id}/clients",
+                    f"/networks/{network.network_id}/wireless/clients",
                     params={"timespan": 86400, "perPage": 1000}
                 )
 
@@ -238,23 +239,23 @@ class MerakiBulkSync:
                         if not mac:
                             continue
 
-                        # Parse timestamps
-                        first_seen = None
-                        last_seen = None
-                        if client.get("firstSeen"):
+                        # Parse timestamps - handle both Unix epoch and ISO format
+                        def parse_meraki_timestamp(ts):
+                            if not ts:
+                                return None
                             try:
-                                first_seen = datetime.fromisoformat(
-                                    client["firstSeen"].replace("Z", "+00:00")
-                                )
+                                if isinstance(ts, (int, float)):
+                                    return datetime.utcfromtimestamp(ts)
+                                elif isinstance(ts, str):
+                                    if ts.isdigit():
+                                        return datetime.utcfromtimestamp(int(ts))
+                                    else:
+                                        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
                             except:
-                                pass
-                        if client.get("lastSeen"):
-                            try:
-                                last_seen = datetime.fromisoformat(
-                                    client["lastSeen"].replace("Z", "+00:00")
-                                )
-                            except:
-                                pass
+                                return None
+
+                        first_seen = parse_meraki_timestamp(client.get("firstSeen"))
+                        last_seen = parse_meraki_timestamp(client.get("lastSeen"))
 
                         # Get usage stats
                         usage = client.get("usage", {})
@@ -282,6 +283,7 @@ class MerakiBulkSync:
                             usage_sent=usage.get("sent"),
                             usage_recv=usage.get("recv"),
                             psk_group=client.get("pskGroup"),
+                            rssi=client.get("rssi"),
                             last_updated=datetime.utcnow()
                         )
                         db.merge(record)

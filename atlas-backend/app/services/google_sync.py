@@ -137,7 +137,8 @@ class GoogleConnector:
             wan_ip = wan_ip,
 
             os_version = raw_data.get('osVersion'),
-            last_sync = datetime.utcnow(),
+            # Use Google's lastSync timestamp (when device last synced with Google)
+            last_sync = datetime.fromisoformat(raw_data['lastSync'].replace('Z', '+00:00')) if raw_data.get('lastSync') else datetime.utcnow(),
             ethernet_mac_address = raw_data.get('ethernetMacAddress'),
             mac_address = raw_data.get('macAddress'),
             
@@ -273,7 +274,8 @@ class GoogleConnector:
                     lan_ip = lan_ip,
                     wan_ip = wan_ip,
                     os_version = raw_data.get('osVersion'),
-                    last_sync = datetime.utcnow(),
+                    # Use Google's lastSync timestamp (when device last synced with Google)
+                    last_sync = datetime.fromisoformat(raw_data['lastSync'].replace('Z', '+00:00')) if raw_data.get('lastSync') else datetime.utcnow(),
                     ethernet_mac_address = raw_data.get('ethernetMacAddress'),
                     mac_address = raw_data.get('macAddress'),
                     recent_users = recent_users,

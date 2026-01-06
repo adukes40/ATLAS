@@ -6,7 +6,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
-    allowedHosts: ['atlas.cr.k12.de.us'],
+    // allowedHosts can be configured via VITE_ALLOWED_HOST env var
+    // or set to 'all' during development
+    allowedHosts: process.env.VITE_ALLOWED_HOST
+      ? [process.env.VITE_ALLOWED_HOST]
+      : 'all',
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

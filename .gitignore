@@ -44,3 +44,6 @@ Thumbs.db
 # Backups
 backups/
 *.bak
+
+# Development plans (may contain internal details)
+docs/plans/

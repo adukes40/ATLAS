@@ -78,13 +78,12 @@ app.add_middleware(
 )
 
 # CORS Middleware
+# Origins loaded from environment variable ALLOWED_ORIGINS (comma-separated)
+import os
+cors_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://atlas.cr.k12.de.us",
-        "https://atlas.cr.k12.de.us",
-        "http://localhost:5173",  # Dev
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
