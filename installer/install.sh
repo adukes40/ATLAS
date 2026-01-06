@@ -325,7 +325,50 @@ collect_google_service_account() {
   echo -e "  ${DIM}  - https://www.googleapis.com/auth/admin.directory.user.readonly${CL}"
   echo -e "  ${DIM}  - https://www.googleapis.com/auth/admin.directory.group.member.readonly${CL}"
   echo ""
-  read -p "  Enter path to Google Service Account JSON file: " GOOGLE_CREDS_PATH
+
+  echo -e "  ${BOLD}How do you want to provide the credentials?${CL}"
+  echo -e "    ${DIM}1) Paste JSON content (recommended)${CL}"
+  echo -e "    ${DIM}2) Specify path to existing file${CL}"
+  read -p "  Choice [1/2]: " CREDS_CHOICE
+
+  if [[ "$CREDS_CHOICE" == "2" ]]; then
+    # Existing file path
+    while true; do
+      read -p "  Enter path to Google Service Account JSON file: " GOOGLE_CREDS_PATH
+      if [[ -f "$GOOGLE_CREDS_PATH" ]]; then
+        echo -e "  ${GN}File found${CL}"
+        break
+      else
+        echo -e "  ${RD}File not found: $GOOGLE_CREDS_PATH${CL}"
+      fi
+    done
+  else
+    # Paste JSON content
+    GOOGLE_CREDS_PATH="/opt/atlas/atlas-backend/google_credentials.json"
+    echo ""
+    echo -e "  ${DIM}Paste your Google Service Account JSON below.${CL}"
+    echo -e "  ${DIM}After pasting, press Enter, then Ctrl+D to finish:${CL}"
+    echo ""
+
+    # Create directory if it doesn't exist
+    mkdir -p /opt/atlas/atlas-backend
+
+    # Read multiline input
+    CREDS_CONTENT=$(cat)
+
+    # Save to file
+    echo "$CREDS_CONTENT" > "$GOOGLE_CREDS_PATH"
+    chmod 600 "$GOOGLE_CREDS_PATH"
+
+    # Validate it's JSON
+    if grep -q "private_key" "$GOOGLE_CREDS_PATH" 2>/dev/null; then
+      echo -e "  ${GN}Credentials saved to $GOOGLE_CREDS_PATH${CL}"
+    else
+      echo -e "  ${RD}Warning: File doesn't appear to be valid service account JSON${CL}"
+    fi
+  fi
+
+  echo ""
   read -p "  Enter admin email for domain-wide delegation: " GOOGLE_ADMIN_EMAIL
 }
 
