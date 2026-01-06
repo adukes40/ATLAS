@@ -33,6 +33,12 @@ google_credentials.json
 !package-lock.json
 !tsconfig.json
 
+# Temporary fix/patch scripts (often contain secrets)
+fix_*.py
+patch_*.py
+*_creds.py
+*_secrets.py
+
 # IDE
 .vscode/
 .idea/
