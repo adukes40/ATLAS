@@ -125,7 +125,7 @@ Before installation, gather the following credentials:
 
 #### 1. Incident IQ (IIQ)
 All IIQ credentials are found at **Admin > Developer Tools**:
-- **Instance URL**: Your IIQ URL (e.g., `https://yourdistrict.incidentiq.com`)
+- **Instance ID**: The subdomain from your IIQ URL (e.g., if your URL is `https://mydistrict.incidentiq.com`, enter `mydistrict`)
 - **Site ID**: Displayed on the Developer Tools page
 - **API Token**: Click "Create Token" on the Developer Tools page
 - **Product ID**: Listed on the Developer Tools page
@@ -233,7 +233,7 @@ DATABASE_URL=postgresql://atlas:your_secure_password@localhost/atlas
 # INCIDENT IQ (IIQ) API
 # Get these from: IIQ Admin > Developer Tools
 # =============================================================================
-IIQ_URL=https://yourdistrict.incidentiq.com
+IIQ_URL=https://<your-instance-id>.incidentiq.com
 IIQ_TOKEN=your_api_token
 IIQ_SITE_ID=your_site_id
 IIQ_PRODUCT_ID=your_product_id

@@ -258,23 +258,17 @@ collect_server_config() {
     ATLAS_DOMAIN="localhost"
   fi
 
-  # Extract email domain - handle k12.*.us and similar patterns
-  # For atlas.cr.k12.de.us -> cr.k12.de.us
-  # For atlas.yourdistrict.org -> yourdistrict.org
-  if [[ "$ATLAS_DOMAIN" =~ \.k12\.[a-z]{2}\.us$ ]]; then
-    # K-12 domain pattern: extract district.k12.state.us
+  # Extract email domain by removing the hostname (first part)
+  # atlas.cr.k12.de.us -> cr.k12.de.us
+  # atlas.mydistrict.org -> mydistrict.org
+  # lookup.example.com -> example.com
+  if [[ "$ATLAS_DOMAIN" == *"."*"."* ]]; then
+    # Has at least 2 dots - strip the first part (hostname)
     ALLOWED_DOMAIN=$(echo "$ATLAS_DOMAIN" | sed 's/^[^.]*\.//')
-  elif [[ "$ATLAS_DOMAIN" =~ \.[a-z]{2,}\.[a-z]{2,}$ ]]; then
-    # Standard two-part TLD: extract domain.tld
-    ALLOWED_DOMAIN=$(echo "$ATLAS_DOMAIN" | grep -oE '[^.]+\.[^.]+$')
-  else
-    ALLOWED_DOMAIN=""
-  fi
-
-  if [[ -z "$ALLOWED_DOMAIN" || "$ALLOWED_DOMAIN" == "$ATLAS_DOMAIN" ]]; then
-    read -p "  Enter your email domain (e.g., yourdistrict.org): " ALLOWED_DOMAIN
-  else
     echo -e "  ${GN}Email domain: $ALLOWED_DOMAIN${CL}"
+  else
+    # Simple domain or can't detect - ask
+    read -p "  Enter your email domain (e.g., yourdistrict.org): " ALLOWED_DOMAIN
   fi
 }
 
@@ -299,9 +293,9 @@ collect_iiq_config() {
   echo ""
 
   # Smart URL construction from subdomain
-  echo -e "  ${DIM}Enter your IIQ subdomain (the part before .incidentiq.com)${CL}"
-  echo -e "  ${DIM}Examples: crsd, msd, sussextech, appoquinimink${CL}"
-  read -p "  IIQ Instance Name: " IIQ_SUBDOMAIN
+  echo -e "  ${DIM}Enter your IIQ instance ID (the part before .incidentiq.com)${CL}"
+  echo -e "  ${DIM}Example: If your URL is https://mydistrict.incidentiq.com, enter: mydistrict${CL}"
+  read -p "  IIQ Instance ID: " IIQ_SUBDOMAIN
 
   # Strip any accidental full URL or .incidentiq.com suffix
   IIQ_SUBDOMAIN=$(echo "$IIQ_SUBDOMAIN" | sed 's|https\?://||' | sed 's|\.incidentiq\.com.*||')
@@ -464,7 +458,7 @@ review_and_confirm() {
 
     if [[ "$ENABLE_IIQ" == true ]]; then
       echo -e "  ${BOLD}[3] Incident IQ${CL}"
-      echo -e "      Instance:      $IIQ_SUBDOMAIN"
+      echo -e "      Instance ID:   $IIQ_SUBDOMAIN"
       echo -e "      URL:           $IIQ_BASE_URL"
       echo -e "      Site ID:       ${IIQ_SITE_ID:0:8}..."
       echo -e "      Token:         ${IIQ_TOKEN:0:8}..."
