@@ -596,36 +596,51 @@ review_and_confirm() {
 # INSTALLATION STEPS
 # ============================================================================
 install_dependencies() {
-  msg_info "Updating package lists"
-  apt-get update -qq > /dev/null 2>&1
+  echo -e " ${BL}[INFO]${CL} Updating package lists..."
+  apt-get update -qq > /dev/null 2>&1 &
+  spinner $!
   msg_ok "Package lists updated"
 
-  msg_info "Installing system dependencies"
-  apt-get install -y -qq \
-    curl \
-    wget \
-    git \
-    build-essential \
-    python3 \
-    python3-pip \
-    python3-venv \
-    postgresql \
-    postgresql-contrib \
-    nginx \
-    certbot \
-    python3-certbot-nginx \
-    supervisor \
-    > /dev/null 2>&1
+  echo ""
+  echo -e " ${BL}[INFO]${CL} Installing system dependencies..."
+  echo -e "        ${DIM}(This may take 2-3 minutes on first install)${CL}"
+  echo ""
+
+  # Install in groups with progress feedback
+  local packages=(
+    "curl wget git:Core utilities"
+    "build-essential:Build tools"
+    "python3 python3-pip python3-venv:Python environment"
+    "postgresql postgresql-contrib:PostgreSQL database"
+    "nginx:Web server"
+    "certbot python3-certbot-nginx:SSL certificates"
+  )
+
+  for item in "${packages[@]}"; do
+    local pkgs="${item%%:*}"
+    local desc="${item##*:}"
+    echo -ne "        ${DIM}Installing ${desc}...${CL}"
+    if apt-get install -y -qq $pkgs > /dev/null 2>&1; then
+      echo -e " ${GN}done${CL}"
+    else
+      echo -e " ${YW}skipped${CL}"
+    fi
+  done
+
+  echo ""
   msg_ok "System dependencies installed"
 }
 
 install_nodejs() {
-  msg_info "Installing Node.js $NODE_VERSION"
   if ! command -v node &> /dev/null; then
-    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - > /dev/null 2>&1
+    echo -e " ${BL}[INFO]${CL} Installing Node.js $NODE_VERSION..."
+    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x 2>/dev/null | bash - > /dev/null 2>&1 &
+    spinner $!
     apt-get install -y -qq nodejs > /dev/null 2>&1
+    msg_ok "Node.js $(node --version) installed"
+  else
+    msg_ok "Node.js $(node --version) already installed"
   fi
-  msg_ok "Node.js $(node --version) installed"
 }
 
 setup_database() {
@@ -652,12 +667,13 @@ setup_database() {
   sleep 3
 
   # Helper function to run psql commands as postgres user
+  # Uses heredoc to avoid quote escaping issues with passwords
   run_psql() {
     local sql="$1"
     if command -v sudo &> /dev/null; then
-      sudo -u postgres psql -c "$sql" 2>&1
+      sudo -u postgres psql -t -A <<< "$sql" 2>&1
     else
-      su - postgres -c "psql -c \"$sql\"" 2>&1
+      su - postgres -c "psql -t -A" <<< "$sql" 2>&1
     fi
   }
 
@@ -670,35 +686,55 @@ setup_database() {
 
   # Create or update the atlas_admin user
   # First check if user exists
-  USER_EXISTS=$(run_psql "SELECT 1 FROM pg_roles WHERE rolname='atlas_admin';" 2>/dev/null | grep -c "1 row" || echo "0")
+  USER_EXISTS=$(run_psql "SELECT 1 FROM pg_roles WHERE rolname='atlas_admin';" 2>/dev/null | grep -c "1" || echo "0")
 
   if [[ "$USER_EXISTS" == "0" ]]; then
     echo -e "  ${DIM}Creating database user atlas_admin...${CL}"
-    if ! run_psql "CREATE USER atlas_admin WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1; then
+    # Use separate command to handle password with special characters
+    if command -v sudo &> /dev/null; then
+      sudo -u postgres psql -c "CREATE USER atlas_admin WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1
+    else
+      su - postgres << EOSQL > /dev/null 2>&1
+psql -c "CREATE USER atlas_admin WITH PASSWORD '$DB_PASSWORD';"
+EOSQL
+    fi
+    if [[ $? -ne 0 ]]; then
       msg_error "Failed to create database user"
       exit 1
     fi
   else
     echo -e "  ${DIM}Updating existing user atlas_admin password...${CL}"
-    if ! run_psql "ALTER USER atlas_admin WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1; then
+    if command -v sudo &> /dev/null; then
+      sudo -u postgres psql -c "ALTER USER atlas_admin WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1
+    else
+      su - postgres << EOSQL > /dev/null 2>&1
+psql -c "ALTER USER atlas_admin WITH PASSWORD '$DB_PASSWORD';"
+EOSQL
+    fi
+    if [[ $? -ne 0 ]]; then
       msg_error "Failed to update database user password"
       exit 1
     fi
   fi
 
   # Create database if it doesn't exist
-  DB_EXISTS=$(run_psql "SELECT 1 FROM pg_database WHERE datname='atlas_db';" 2>/dev/null | grep -c "1 row" || echo "0")
+  DB_EXISTS=$(run_psql "SELECT 1 FROM pg_database WHERE datname='atlas_db';" 2>/dev/null | grep -c "1" || echo "0")
 
   if [[ "$DB_EXISTS" == "0" ]]; then
     echo -e "  ${DIM}Creating database atlas_db...${CL}"
-    if ! run_psql "CREATE DATABASE atlas_db OWNER atlas_admin;" > /dev/null 2>&1; then
+    if command -v sudo &> /dev/null; then
+      sudo -u postgres psql -c "CREATE DATABASE atlas_db OWNER atlas_admin;" > /dev/null 2>&1
+    else
+      su - postgres -c "psql -c 'CREATE DATABASE atlas_db OWNER atlas_admin;'" > /dev/null 2>&1
+    fi
+    if [[ $? -ne 0 ]]; then
       msg_error "Failed to create database"
       exit 1
     fi
   fi
 
   # Grant privileges (idempotent)
-  run_psql "GRANT ALL PRIVILEGES ON DATABASE atlas_db TO atlas_admin;" > /dev/null 2>&1
+  run_psql "GRANT ALL PRIVILEGES ON DATABASE atlas_db TO atlas_admin;" > /dev/null 2>&1 || true
 
   # Verify we can connect with the new credentials
   echo -e "  ${DIM}Verifying database connection...${CL}"
@@ -875,12 +911,20 @@ EOF
 }
 
 setup_python_env() {
-  msg_info "Setting up Python virtual environment"
+  echo -e " ${BL}[INFO]${CL} Setting up Python virtual environment..."
+  echo -e "        ${DIM}(This may take 1-2 minutes)${CL}"
+  echo ""
 
+  echo -ne "        ${DIM}Creating virtual environment...${CL}"
   python3 -m venv $VENV_DIR
   source $VENV_DIR/bin/activate
+  echo -e " ${GN}done${CL}"
 
-  pip install --upgrade pip -q
+  echo -ne "        ${DIM}Upgrading pip...${CL}"
+  pip install --upgrade pip -q > /dev/null 2>&1
+  echo -e " ${GN}done${CL}"
+
+  echo -ne "        ${DIM}Installing Python packages...${CL}"
   pip install -q \
     fastapi \
     uvicorn[standard] \
@@ -895,19 +939,33 @@ setup_python_env() {
     authlib \
     itsdangerous \
     slowapi \
-    requests
+    requests \
+    > /dev/null 2>&1 &
+  spinner $!
+  echo -e " ${GN}done${CL}"
 
+  echo ""
   msg_ok "Python environment configured"
 }
 
 setup_nodejs_env() {
-  msg_info "Installing Node.js dependencies and building frontend"
+  echo -e " ${BL}[INFO]${CL} Building frontend..."
+  echo -e "        ${DIM}(This may take 1-2 minutes)${CL}"
+  echo ""
 
   cd $ATLAS_DIR/atlas-ui
 
-  npm install --silent 2>/dev/null || true
-  npm run build --silent 2>/dev/null || true
+  echo -ne "        ${DIM}Installing npm packages...${CL}"
+  npm install --silent > /dev/null 2>&1 &
+  spinner $!
+  echo -e " ${GN}done${CL}"
 
+  echo -ne "        ${DIM}Building React app...${CL}"
+  npm run build --silent > /dev/null 2>&1 &
+  spinner $!
+  echo -e " ${GN}done${CL}"
+
+  echo ""
   msg_ok "Frontend built"
 }
 
