@@ -25,8 +25,19 @@ ATLAS (Asset, Telemetry, Location, & Analytics System) is an IT operations platf
 
 LXC containers are lightweight and get their own IP address - no port conflicts with existing services.
 
-### Step 1: Create the container
-Run this on your Proxmox host (adjust storage and network as needed):
+> **Already have an Ubuntu/Debian LXC?** Skip to [Step 4: Run the ATLAS installer](#step-4-run-the-atlas-installer).
+
+### Step 1: Download a container template
+
+On your Proxmox host, download the Ubuntu 22.04 template:
+```bash
+pveam update
+pveam download local ubuntu-22.04-standard_22.04-1_amd64.tar.zst
+```
+
+### Step 2: Create the container
+
+Run this on your Proxmox host (adjust VMID, storage, and network as needed):
 ```bash
 pct create 101 local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst \
   --hostname atlas \
@@ -41,24 +52,25 @@ pct create 101 local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst \
 pct start 101
 ```
 
-### Step 2: Enter the container
+### Step 3: Enter the container
 ```bash
 pct enter 101
 ```
 
-### Step 3: Update and install curl
-```bash
-apt update && apt upgrade -y
-apt install -y curl
-```
-
 ### Step 4: Run the ATLAS installer
+
+Update the system and run the installer in one command:
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/adukes40/ATLAS/main/installer/install.sh)"
+apt update && apt upgrade -y && apt install -y curl && bash -c "$(curl -fsSL https://raw.githubusercontent.com/adukes40/ATLAS/main/installer/install.sh)"
 ```
 
 ### Step 5: Complete the wizard
-Follow the prompts to enter your IIQ, Google, and Meraki credentials.
+The installer will guide you through:
+- Selecting data sources (IIQ, Google, Meraki)
+- Entering API credentials
+- Configuring authentication
+
+> **Tip:** If the installer fails partway through, just re-run it. Your configuration will be saved and you can resume where you left off.
 
 ### Step 6: Access ATLAS
 Find your container's IP: `ip addr show eth0`
@@ -87,21 +99,22 @@ Download Ubuntu 22.04 LTS Server ISO from: https://ubuntu.com/download/server
 - Complete installation with default settings
 - Create your admin user
 
-### Step 3: Update and install curl
+### Step 3: Run the ATLAS installer
+
+Update the system and run the installer in one command:
 ```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl
+sudo apt update && sudo apt upgrade -y && sudo apt install -y curl && sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/adukes40/ATLAS/main/installer/install.sh)"
 ```
 
-### Step 4: Run the ATLAS installer
-```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/adukes40/ATLAS/main/installer/install.sh)"
-```
+### Step 4: Complete the wizard
+The installer will guide you through:
+- Selecting data sources (IIQ, Google, Meraki)
+- Entering API credentials
+- Configuring authentication
 
-### Step 5: Complete the wizard
-Follow the prompts to enter your IIQ, Google, and Meraki credentials.
+> **Tip:** If the installer fails partway through, just re-run it. Your configuration will be saved and you can resume where you left off.
 
-### Step 6: Access ATLAS
+### Step 5: Access ATLAS
 Find your VM's IP: `ip addr`
 Open in browser: `http://<vm-ip>/`
 
@@ -115,7 +128,7 @@ All IIQ credentials are found at **Admin > Developer Tools**:
 - **Instance URL**: Your IIQ URL (e.g., `https://yourdistrict.incidentiq.com`)
 - **Site ID**: Displayed on the Developer Tools page
 - **API Token**: Click "Create Token" on the Developer Tools page
-- **Product ID**: Listed on the Developer Tools page (for filtering to Chromebooks)
+- **Product ID**: Listed on the Developer Tools page
 
 #### 2. Google Workspace - Service Account (for data sync)
 Create a service account for syncing device and user data:
@@ -141,7 +154,9 @@ Create OAuth credentials for user login:
 
 1. In Google Cloud Console > APIs & Services > Credentials
 2. Create OAuth 2.0 Client ID (Web application type)
-3. Add authorized redirect URI: `http://atlas.yourdistrict.org/auth/callback`
+3. Add authorized redirect URIs:
+   - `http://atlas.yourdistrict.org/auth/callback`
+   - `https://atlas.yourdistrict.org/auth/callback`
 4. Note the **Client ID** and **Client Secret**
 5. Configure OAuth consent screen:
    - User type: Internal (restricts to your domain)
@@ -555,4 +570,4 @@ https://github.com/adukes40/ATLAS
 
 ## License
 
-MIT License - See LICENSE file for details.
+All Rights Reserved. This software is proprietary and confidential.
