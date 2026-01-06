@@ -607,13 +607,32 @@ setup_database() {
   # Wait for PostgreSQL to be ready
   sleep 2
 
+  # Determine how to run commands as postgres user (sudo vs su)
+  if command -v sudo &> /dev/null; then
+    PG_CMD="sudo -u postgres"
+  else
+    PG_CMD="su - postgres -c"
+  fi
+
   # Create user and database
-  sudo -u postgres psql -c "CREATE USER atlas WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1 || true
-  sudo -u postgres psql -c "CREATE DATABASE atlas OWNER atlas;" > /dev/null 2>&1 || true
-  sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE atlas TO atlas;" > /dev/null 2>&1 || true
+  if [[ "$PG_CMD" == "su - postgres -c" ]]; then
+    su - postgres -c "psql -c \"CREATE USER atlas WITH PASSWORD '$DB_PASSWORD';\"" > /dev/null 2>&1 || true
+    su - postgres -c "psql -c \"CREATE DATABASE atlas OWNER atlas;\"" > /dev/null 2>&1 || true
+    su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE atlas TO atlas;\"" > /dev/null 2>&1 || true
+  else
+    sudo -u postgres psql -c "CREATE USER atlas WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1 || true
+    sudo -u postgres psql -c "CREATE DATABASE atlas OWNER atlas;" > /dev/null 2>&1 || true
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE atlas TO atlas;" > /dev/null 2>&1 || true
+  fi
 
   # Verify PostgreSQL is running
-  if sudo -u postgres psql -c "SELECT 1;" > /dev/null 2>&1; then
+  if [[ "$PG_CMD" == "su - postgres -c" ]]; then
+    VERIFY_CMD="su - postgres -c \"psql -c 'SELECT 1;'\""
+  else
+    VERIFY_CMD="sudo -u postgres psql -c 'SELECT 1;'"
+  fi
+
+  if eval "$VERIFY_CMD" > /dev/null 2>&1; then
     msg_ok "PostgreSQL database configured"
   else
     msg_error "PostgreSQL failed to start. Check: systemctl status postgresql"
