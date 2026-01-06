@@ -526,16 +526,37 @@ install_nodejs() {
 setup_database() {
   msg_info "Configuring PostgreSQL database"
 
-  # Start PostgreSQL
-  systemctl start postgresql
-  systemctl enable postgresql > /dev/null 2>&1
+  # On fresh installs, PostgreSQL cluster may need to be created first
+  if ! pg_lsclusters -h 2>/dev/null | grep -q "online"; then
+    # Find the installed PostgreSQL version
+    PG_VERSION=$(ls /usr/lib/postgresql/ 2>/dev/null | sort -V | tail -1)
+    if [[ -n "$PG_VERSION" ]]; then
+      pg_createcluster "$PG_VERSION" main --start > /dev/null 2>&1 || true
+    fi
+  fi
+
+  # Start PostgreSQL (try multiple service name formats)
+  systemctl start postgresql > /dev/null 2>&1 || \
+    systemctl start postgresql.service > /dev/null 2>&1 || \
+    service postgresql start > /dev/null 2>&1 || true
+
+  systemctl enable postgresql > /dev/null 2>&1 || true
+
+  # Wait for PostgreSQL to be ready
+  sleep 2
 
   # Create user and database
   sudo -u postgres psql -c "CREATE USER atlas WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1 || true
   sudo -u postgres psql -c "CREATE DATABASE atlas OWNER atlas;" > /dev/null 2>&1 || true
-  sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE atlas TO atlas;" > /dev/null 2>&1
+  sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE atlas TO atlas;" > /dev/null 2>&1 || true
 
-  msg_ok "PostgreSQL database configured"
+  # Verify PostgreSQL is running
+  if sudo -u postgres psql -c "SELECT 1;" > /dev/null 2>&1; then
+    msg_ok "PostgreSQL database configured"
+  else
+    msg_error "PostgreSQL failed to start. Check: systemctl status postgresql"
+    exit 1
+  fi
 }
 
 setup_directories() {
