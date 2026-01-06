@@ -922,9 +922,15 @@ EOF
 
   # Copy Google credentials if provided and Google is enabled
   if [[ "$ENABLE_GOOGLE" == true && -f "$GOOGLE_CREDS_PATH" ]]; then
-    cp "$GOOGLE_CREDS_PATH" $ATLAS_DIR/atlas-backend/google_credentials.json
-    chmod 600 $ATLAS_DIR/atlas-backend/google_credentials.json
-    msg_ok "Google credentials copied"
+    local dest_creds="$ATLAS_DIR/atlas-backend/google_credentials.json"
+    # Only copy if source and destination are different files
+    if [[ "$(realpath "$GOOGLE_CREDS_PATH" 2>/dev/null)" != "$(realpath "$dest_creds" 2>/dev/null)" ]]; then
+      cp "$GOOGLE_CREDS_PATH" "$dest_creds"
+      msg_ok "Google credentials copied"
+    else
+      msg_ok "Google credentials already in place"
+    fi
+    chmod 600 "$dest_creds"
   elif [[ "$ENABLE_GOOGLE" == true ]]; then
     msg_warn "Google credentials file not found at $GOOGLE_CREDS_PATH"
     msg_warn "You'll need to manually copy your service account JSON to:"
