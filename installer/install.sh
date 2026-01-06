@@ -258,16 +258,23 @@ collect_server_config() {
     ATLAS_DOMAIN="localhost"
   fi
 
-  # Extract just the domain part for OAuth
-  ALLOWED_DOMAIN=$(echo "$ATLAS_DOMAIN" | sed 's/.*\.\([^.]*\.[^.]*\)$/\1/' | sed 's/^[^.]*\.//')
+  # Extract email domain - handle k12.*.us and similar patterns
+  # For atlas.cr.k12.de.us -> cr.k12.de.us
+  # For atlas.yourdistrict.org -> yourdistrict.org
+  if [[ "$ATLAS_DOMAIN" =~ \.k12\.[a-z]{2}\.us$ ]]; then
+    # K-12 domain pattern: extract district.k12.state.us
+    ALLOWED_DOMAIN=$(echo "$ATLAS_DOMAIN" | sed 's/^[^.]*\.//')
+  elif [[ "$ATLAS_DOMAIN" =~ \.[a-z]{2,}\.[a-z]{2,}$ ]]; then
+    # Standard two-part TLD: extract domain.tld
+    ALLOWED_DOMAIN=$(echo "$ATLAS_DOMAIN" | grep -oE '[^.]+\.[^.]+$')
+  else
+    ALLOWED_DOMAIN=""
+  fi
+
   if [[ -z "$ALLOWED_DOMAIN" || "$ALLOWED_DOMAIN" == "$ATLAS_DOMAIN" ]]; then
     read -p "  Enter your email domain (e.g., yourdistrict.org): " ALLOWED_DOMAIN
   else
-    echo -e "  ${DIM}Detected email domain: $ALLOWED_DOMAIN${CL}"
-    read -p "  Press Enter to confirm or type a different domain: " DOMAIN_OVERRIDE
-    if [[ -n "$DOMAIN_OVERRIDE" ]]; then
-      ALLOWED_DOMAIN="$DOMAIN_OVERRIDE"
-    fi
+    echo -e "  ${GN}Email domain: $ALLOWED_DOMAIN${CL}"
   fi
 }
 
