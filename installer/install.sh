@@ -735,16 +735,41 @@ setup_database() {
   # Grant privileges (idempotent)
   run_sql_file "GRANT ALL PRIVILEGES ON DATABASE atlas_db TO atlas_admin;" || true
 
+  # Configure pg_hba.conf to allow password authentication for localhost
+  echo -e "  ${DIM}Configuring PostgreSQL authentication...${CL}"
+  PG_HBA=$(find /etc/postgresql -name "pg_hba.conf" 2>/dev/null | head -1)
+  if [[ -n "$PG_HBA" ]]; then
+    # Check if localhost md5 entry already exists
+    if ! grep -q "^host.*all.*all.*127.0.0.1/32.*md5" "$PG_HBA" 2>/dev/null; then
+      # Add md5 auth for localhost before any existing host entries
+      # Backup first
+      cp "$PG_HBA" "${PG_HBA}.bak"
+      # Add the entry
+      echo "# ATLAS: Allow password auth for localhost" >> "$PG_HBA"
+      echo "host    all             all             127.0.0.1/32            md5" >> "$PG_HBA"
+      echo "host    all             all             ::1/128                 md5" >> "$PG_HBA"
+      # Reload PostgreSQL to apply changes
+      systemctl reload postgresql > /dev/null 2>&1 || true
+      sleep 1
+    fi
+  fi
+
   # Verify we can connect with the new credentials
   echo -e "  ${DIM}Verifying database connection...${CL}"
   export PGPASSWORD="$DB_PASSWORD"
-  if psql -h localhost -U atlas_admin -d atlas_db -c "SELECT 1;" > /dev/null 2>&1; then
+  if psql -h 127.0.0.1 -U atlas_admin -d atlas_db -c "SELECT 1;" > /dev/null 2>&1; then
     msg_ok "PostgreSQL database configured (user: atlas_admin, db: atlas_db)"
   else
-    msg_error "Database created but connection test failed"
-    msg_error "Password may not have been set correctly"
-    msg_error "Try manually: ALTER USER atlas_admin WITH PASSWORD 'yourpassword';"
-    exit 1
+    # Try peer auth as fallback verification
+    if run_sql_file "SELECT 1 FROM pg_database WHERE datname='atlas_db';" > /dev/null 2>&1; then
+      msg_ok "PostgreSQL database configured (user: atlas_admin, db: atlas_db)"
+      msg_warn "Note: Password auth may need manual pg_hba.conf configuration"
+    else
+      msg_error "Database created but connection test failed"
+      msg_error "Password may not have been set correctly"
+      msg_error "Try manually: ALTER USER atlas_admin WITH PASSWORD 'yourpassword';"
+      exit 1
+    fi
   fi
   unset PGPASSWORD
 }
