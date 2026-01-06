@@ -636,6 +636,7 @@ setup_database() {
     # Find the installed PostgreSQL version
     PG_VERSION=$(ls /usr/lib/postgresql/ 2>/dev/null | sort -V | tail -1)
     if [[ -n "$PG_VERSION" ]]; then
+      echo -e "  ${DIM}Creating PostgreSQL cluster...${CL}"
       pg_createcluster "$PG_VERSION" main --start > /dev/null 2>&1 || true
     fi
   fi
@@ -648,39 +649,69 @@ setup_database() {
   systemctl enable postgresql > /dev/null 2>&1 || true
 
   # Wait for PostgreSQL to be ready
-  sleep 2
+  sleep 3
 
-  # Determine how to run commands as postgres user (sudo vs su)
-  if command -v sudo &> /dev/null; then
-    PG_CMD="sudo -u postgres"
-  else
-    PG_CMD="su - postgres -c"
-  fi
+  # Helper function to run psql commands as postgres user
+  run_psql() {
+    local sql="$1"
+    if command -v sudo &> /dev/null; then
+      sudo -u postgres psql -c "$sql" 2>&1
+    else
+      su - postgres -c "psql -c \"$sql\"" 2>&1
+    fi
+  }
 
-  # Create user and database
-  if [[ "$PG_CMD" == "su - postgres -c" ]]; then
-    su - postgres -c "psql -c \"CREATE USER atlas WITH PASSWORD '$DB_PASSWORD';\"" > /dev/null 2>&1 || true
-    su - postgres -c "psql -c \"CREATE DATABASE atlas OWNER atlas;\"" > /dev/null 2>&1 || true
-    su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE atlas TO atlas;\"" > /dev/null 2>&1 || true
-  else
-    sudo -u postgres psql -c "CREATE USER atlas WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1 || true
-    sudo -u postgres psql -c "CREATE DATABASE atlas OWNER atlas;" > /dev/null 2>&1 || true
-    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE atlas TO atlas;" > /dev/null 2>&1 || true
-  fi
-
-  # Verify PostgreSQL is running
-  if [[ "$PG_CMD" == "su - postgres -c" ]]; then
-    VERIFY_CMD="su - postgres -c \"psql -c 'SELECT 1;'\""
-  else
-    VERIFY_CMD="sudo -u postgres psql -c 'SELECT 1;'"
-  fi
-
-  if eval "$VERIFY_CMD" > /dev/null 2>&1; then
-    msg_ok "PostgreSQL database configured"
-  else
-    msg_error "PostgreSQL failed to start. Check: systemctl status postgresql"
+  # Verify PostgreSQL is accessible
+  if ! run_psql "SELECT 1;" > /dev/null 2>&1; then
+    msg_error "Cannot connect to PostgreSQL"
+    msg_error "Check: systemctl status postgresql"
     exit 1
   fi
+
+  # Create or update the atlas_admin user
+  # First check if user exists
+  USER_EXISTS=$(run_psql "SELECT 1 FROM pg_roles WHERE rolname='atlas_admin';" 2>/dev/null | grep -c "1 row" || echo "0")
+
+  if [[ "$USER_EXISTS" == "0" ]]; then
+    echo -e "  ${DIM}Creating database user atlas_admin...${CL}"
+    if ! run_psql "CREATE USER atlas_admin WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1; then
+      msg_error "Failed to create database user"
+      exit 1
+    fi
+  else
+    echo -e "  ${DIM}Updating existing user atlas_admin password...${CL}"
+    if ! run_psql "ALTER USER atlas_admin WITH PASSWORD '$DB_PASSWORD';" > /dev/null 2>&1; then
+      msg_error "Failed to update database user password"
+      exit 1
+    fi
+  fi
+
+  # Create database if it doesn't exist
+  DB_EXISTS=$(run_psql "SELECT 1 FROM pg_database WHERE datname='atlas_db';" 2>/dev/null | grep -c "1 row" || echo "0")
+
+  if [[ "$DB_EXISTS" == "0" ]]; then
+    echo -e "  ${DIM}Creating database atlas_db...${CL}"
+    if ! run_psql "CREATE DATABASE atlas_db OWNER atlas_admin;" > /dev/null 2>&1; then
+      msg_error "Failed to create database"
+      exit 1
+    fi
+  fi
+
+  # Grant privileges (idempotent)
+  run_psql "GRANT ALL PRIVILEGES ON DATABASE atlas_db TO atlas_admin;" > /dev/null 2>&1
+
+  # Verify we can connect with the new credentials
+  echo -e "  ${DIM}Verifying database connection...${CL}"
+  export PGPASSWORD="$DB_PASSWORD"
+  if psql -h localhost -U atlas_admin -d atlas_db -c "SELECT 1;" > /dev/null 2>&1; then
+    msg_ok "PostgreSQL database configured (user: atlas_admin, db: atlas_db)"
+  else
+    msg_error "Database created but connection test failed"
+    msg_error "Password may not have been set correctly"
+    msg_error "Try manually: ALTER USER atlas_admin WITH PASSWORD 'yourpassword';"
+    exit 1
+  fi
+  unset PGPASSWORD
 }
 
 setup_directories() {
@@ -747,7 +778,7 @@ create_config() {
 # =============================================================================
 # DATABASE
 # =============================================================================
-DATABASE_URL=postgresql://atlas:${DB_PASSWORD}@localhost/atlas
+DATABASE_URL=postgresql://atlas_admin:${DB_PASSWORD}@localhost/atlas_db
 EOF
 
   # Add IIQ config if enabled
