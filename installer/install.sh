@@ -108,6 +108,72 @@ ENABLE_IIQ=true
 ENABLE_GOOGLE=true
 ENABLE_MERAKI=true
 
+# Config save file for resume capability
+CONFIG_SAVE_FILE="/tmp/atlas-install-config"
+
+# ============================================================================
+# SAVE/LOAD CONFIG FOR RESUME
+# ============================================================================
+save_config() {
+  cat > "$CONFIG_SAVE_FILE" << EOF
+# ATLAS Install Config - saved $(date)
+ENABLE_IIQ=$ENABLE_IIQ
+ENABLE_GOOGLE=$ENABLE_GOOGLE
+ENABLE_MERAKI=$ENABLE_MERAKI
+ATLAS_DOMAIN="$ATLAS_DOMAIN"
+ALLOWED_DOMAIN="$ALLOWED_DOMAIN"
+DB_PASSWORD="$DB_PASSWORD"
+IIQ_SUBDOMAIN="$IIQ_SUBDOMAIN"
+IIQ_BASE_URL="$IIQ_BASE_URL"
+IIQ_SITE_ID="$IIQ_SITE_ID"
+IIQ_TOKEN="$IIQ_TOKEN"
+IIQ_PRODUCT_ID="$IIQ_PRODUCT_ID"
+GOOGLE_CREDS_PATH="$GOOGLE_CREDS_PATH"
+GOOGLE_ADMIN_EMAIL="$GOOGLE_ADMIN_EMAIL"
+GOOGLE_OAUTH_CLIENT_ID="$GOOGLE_OAUTH_CLIENT_ID"
+GOOGLE_OAUTH_CLIENT_SECRET="$GOOGLE_OAUTH_CLIENT_SECRET"
+REQUIRED_GROUP="$REQUIRED_GROUP"
+MERAKI_API_KEY="$MERAKI_API_KEY"
+MERAKI_ORG_ID="$MERAKI_ORG_ID"
+SECRET_KEY="$SECRET_KEY"
+EOF
+  chmod 600 "$CONFIG_SAVE_FILE"
+}
+
+load_config() {
+  if [[ -f "$CONFIG_SAVE_FILE" ]]; then
+    source "$CONFIG_SAVE_FILE"
+    return 0
+  fi
+  return 1
+}
+
+check_resume() {
+  if [[ -f "$CONFIG_SAVE_FILE" ]]; then
+    echo ""
+    echo -e "${YW}Previous installation config found!${CL}"
+    echo ""
+    echo -e "  ${DIM}Saved: $(head -1 "$CONFIG_SAVE_FILE" | sed 's/# ATLAS Install Config - saved //')${CL}"
+    echo -e "  ${DIM}Domain: $(grep ATLAS_DOMAIN "$CONFIG_SAVE_FILE" | cut -d'"' -f2)${CL}"
+    echo ""
+    read -p "  Resume with saved configuration? [Y/n]: " RESUME_CHOICE
+    if [[ ! "$RESUME_CHOICE" =~ ^[Nn] ]]; then
+      load_config
+      echo ""
+      msg_ok "Configuration loaded"
+      return 0
+    else
+      rm -f "$CONFIG_SAVE_FILE"
+      echo -e "  ${DIM}Starting fresh...${CL}"
+    fi
+  fi
+  return 1
+}
+
+cleanup_config() {
+  rm -f "$CONFIG_SAVE_FILE" 2>/dev/null || true
+}
+
 # ============================================================================
 # COMPONENT SELECTION
 # ============================================================================
@@ -1007,9 +1073,20 @@ main() {
   check_root
   check_os
 
-  echo ""
-  select_components
-  collect_credentials
+  # Check for saved config from previous failed run
+  if check_resume; then
+    # Config loaded, go straight to review
+    echo ""
+    review_and_confirm
+  else
+    # Fresh install - collect all config
+    echo ""
+    select_components
+    collect_credentials
+  fi
+
+  # Save config before installation (in case it fails)
+  save_config
 
   echo ""
   echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
@@ -1030,6 +1107,9 @@ main() {
   setup_cron_jobs
   initialize_database
   start_services
+
+  # Installation successful - clean up saved config
+  cleanup_config
 
   print_summary
 }
