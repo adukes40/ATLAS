@@ -2,13 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from datetime import datetime
+from typing import List, Optional
+from pydantic import BaseModel
 import subprocess
 import os
+import signal
 
 from app.database import get_db
 from app.models import (
     IIQAsset, IIQUser, GoogleDevice, GoogleUser, NetworkCache, SyncLog,
-    MerakiNetwork, MerakiDevice, MerakiSSID, MerakiClient
+    MerakiNetwork, MerakiDevice, MerakiSSID, MerakiClient,
+    SyncSchedule, SyncNotification
 )
 
 router = APIRouter(prefix="/api/utilities", tags=["utilities"])
@@ -111,18 +115,23 @@ def get_sync_status(db: Session = Depends(get_db)):
     return status
 
 
-def run_sync_script(source: str):
+SCRIPT_MAP = {
+    "iiq": "/opt/atlas/atlas-backend/scripts/iiq_bulk_sync.py",
+    "google": "/opt/atlas/atlas-backend/scripts/google_bulk_sync.py",
+    "meraki": "/opt/atlas/atlas-backend/scripts/meraki_bulk_sync.py"
+}
+
+# In-memory store for running process PIDs (cleared on restart)
+RUNNING_PROCESSES: dict = {}  # {source: subprocess.Popen}
+
+
+def run_sync_script(source: str, trigger: str = "manual"):
     """
     Background task to run sync script.
     The script itself handles logging to sync_logs table.
+    Uses Popen to track PID for cancellation support.
     """
-    script_map = {
-        "iiq": "/opt/atlas/atlas-backend/scripts/iiq_bulk_sync.py",
-        "google": "/opt/atlas/atlas-backend/scripts/google_bulk_sync.py",
-        "meraki": "/opt/atlas/atlas-backend/scripts/meraki_bulk_sync.py"
-    }
-
-    script_path = script_map.get(source)
+    script_path = SCRIPT_MAP.get(source)
     if not script_path:
         return
 
@@ -130,28 +139,36 @@ def run_sync_script(source: str):
         # Set UTF-8 encoding environment for proper Unicode handling
         env = {
             **os.environ,
-            "SYNC_TRIGGER": "manual",
+            "SYNC_TRIGGER": trigger,
             "PYTHONIOENCODING": "utf-8",
             "LANG": "en_US.UTF-8",
             "LC_ALL": "en_US.UTF-8"
         }
 
-        # Run the sync script - it handles its own logging
-        subprocess.run(
+        # Start the sync script as a subprocess
+        process = subprocess.Popen(
             ["/opt/atlas/atlas-backend/venv/bin/python3", script_path],
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             cwd="/opt/atlas/atlas-backend",
-            env=env,
-            timeout=600  # 10 minute timeout
+            env=env
         )
-    except subprocess.TimeoutExpired:
-        # Script timed out - log will show as running
-        # The script's finally block should have committed whatever state it was in
-        pass
+
+        # Track the running process
+        RUNNING_PROCESSES[source] = process
+
+        # Wait for completion (with timeout)
+        try:
+            process.wait(timeout=600)  # 10 minute timeout
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
     except Exception:
-        # Script failed to run
         pass
+    finally:
+        # Clean up tracking
+        RUNNING_PROCESSES.pop(source, None)
 
 
 @router.post("/sync/{source}")
@@ -181,6 +198,87 @@ def trigger_sync(source: str, background_tasks: BackgroundTasks, db: Session = D
     return {
         "message": f"{source.upper()} sync started",
         "started_at": datetime.utcnow().isoformat()
+    }
+
+
+@router.post("/sync/all")
+def trigger_all_syncs(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Triggers all syncs (IIQ, Google, Meraki) in parallel.
+    Skips any source that is already running.
+    """
+    sources = ["iiq", "google", "meraki"]
+    started = []
+    skipped = []
+
+    for source in sources:
+        # Check if already running
+        running = db.query(SyncLog).filter(
+            SyncLog.source == source,
+            SyncLog.status == "running"
+        ).first()
+
+        if running:
+            skipped.append({
+                "source": source,
+                "reason": f"Already running (started {running.started_at.isoformat()})"
+            })
+        else:
+            # Start sync in background
+            background_tasks.add_task(run_sync_script, source)
+            started.append(source)
+
+    return {
+        "message": f"Started {len(started)} sync(s)",
+        "started": started,
+        "skipped": skipped,
+        "started_at": datetime.utcnow().isoformat()
+    }
+
+
+@router.post("/sync/{source}/cancel")
+def cancel_sync(source: str, db: Session = Depends(get_db)):
+    """
+    Cancels a running sync by sending SIGTERM to the process.
+    Updates the sync log status to 'cancelled'.
+    """
+    if source not in ["iiq", "google", "meraki"]:
+        raise HTTPException(status_code=400, detail=f"Invalid source: {source}")
+
+    # Check if running in database
+    running_log = db.query(SyncLog).filter(
+        SyncLog.source == source,
+        SyncLog.status == "running"
+    ).first()
+
+    if not running_log:
+        raise HTTPException(status_code=404, detail=f"No running {source.upper()} sync found")
+
+    # Try to kill the process if we have it tracked
+    process = RUNNING_PROCESSES.get(source)
+    if process and process.poll() is None:  # Still running
+        try:
+            process.terminate()  # SIGTERM
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()  # SIGKILL if still running
+            process.wait()
+        except Exception:
+            pass
+
+    # Update the sync log
+    running_log.status = "cancelled"
+    running_log.completed_at = datetime.utcnow()
+    running_log.error_message = "Cancelled by user"
+    db.commit()
+
+    # Clean up tracking
+    RUNNING_PROCESSES.pop(source, None)
+
+    return {
+        "message": f"{source.upper()} sync cancelled",
+        "sync_log_id": running_log.id,
+        "cancelled_at": running_log.completed_at.isoformat()
     }
 
 
@@ -313,3 +411,221 @@ def get_job_status(job_id: int, db: Session = Depends(get_db)):
         "error_details": log.error_details if hasattr(log, 'error_details') else [],
         "triggered_by": log.triggered_by
     }
+
+
+# =============================================================================
+# Schedule Management
+# =============================================================================
+
+class ScheduleUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    hours: Optional[List[int]] = None
+
+
+@router.get("/schedules")
+def get_schedules(db: Session = Depends(get_db)):
+    """
+    Returns all sync schedules with their next scheduled run times.
+    """
+    sources = ["iiq", "google", "meraki"]
+    schedules = {}
+
+    for source in sources:
+        schedule = db.query(SyncSchedule).filter(SyncSchedule.source == source).first()
+
+        if schedule:
+            # Calculate next scheduled run
+            next_run = _calculate_next_run(schedule.hours, schedule.enabled)
+
+            # Get average duration from last 5 successful syncs
+            avg_duration = _get_average_duration(db, source)
+
+            schedules[source] = {
+                "source": source,
+                "enabled": schedule.enabled,
+                "hours": schedule.hours,
+                "updated_at": schedule.updated_at.isoformat() if schedule.updated_at else None,
+                "updated_by": schedule.updated_by,
+                "next_run": next_run,
+                "avg_duration_seconds": avg_duration
+            }
+        else:
+            # Return default schedule (disabled, no hours set)
+            schedules[source] = {
+                "source": source,
+                "enabled": False,
+                "hours": [],
+                "updated_at": None,
+                "updated_by": None,
+                "next_run": None,
+                "avg_duration_seconds": None
+            }
+
+    return schedules
+
+
+@router.put("/schedules/{source}")
+def update_schedule(
+    source: str,
+    data: ScheduleUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Update schedule for a sync source (hours and/or enabled state).
+    """
+    if source not in ["iiq", "google", "meraki"]:
+        raise HTTPException(status_code=400, detail=f"Invalid source: {source}")
+
+    # Validate hours if provided
+    if data.hours is not None:
+        if not all(isinstance(h, int) and 0 <= h <= 23 for h in data.hours):
+            raise HTTPException(status_code=400, detail="Hours must be integers between 0 and 23")
+        # Remove duplicates and sort
+        data.hours = sorted(list(set(data.hours)))
+
+    schedule = db.query(SyncSchedule).filter(SyncSchedule.source == source).first()
+
+    if schedule:
+        # Update existing
+        if data.enabled is not None:
+            schedule.enabled = data.enabled
+        if data.hours is not None:
+            schedule.hours = data.hours
+        schedule.updated_at = datetime.utcnow()
+        # TODO: Get user email from auth context
+        schedule.updated_by = "api"
+    else:
+        # Create new
+        schedule = SyncSchedule(
+            source=source,
+            enabled=data.enabled if data.enabled is not None else True,
+            hours=data.hours if data.hours is not None else [],
+            updated_at=datetime.utcnow(),
+            updated_by="api"
+        )
+        db.add(schedule)
+
+    db.commit()
+    db.refresh(schedule)
+
+    return {
+        "source": schedule.source,
+        "enabled": schedule.enabled,
+        "hours": schedule.hours,
+        "updated_at": schedule.updated_at.isoformat(),
+        "next_run": _calculate_next_run(schedule.hours, schedule.enabled)
+    }
+
+
+def _calculate_next_run(hours: List[int], enabled: bool) -> Optional[str]:
+    """Calculate the next scheduled run time based on hours array."""
+    if not enabled or not hours:
+        return None
+
+    now = datetime.utcnow()
+    current_hour = now.hour
+
+    # Find next hour in schedule
+    future_hours = [h for h in hours if h > current_hour]
+    if future_hours:
+        next_hour = min(future_hours)
+        next_run = now.replace(hour=next_hour, minute=0, second=0, microsecond=0)
+    else:
+        # Next run is tomorrow at earliest hour
+        from datetime import timedelta
+        next_hour = min(hours)
+        next_run = (now + timedelta(days=1)).replace(hour=next_hour, minute=0, second=0, microsecond=0)
+
+    return next_run.isoformat()
+
+
+def _get_average_duration(db: Session, source: str) -> Optional[float]:
+    """Get average sync duration from last 5 successful syncs."""
+    logs = db.query(SyncLog).filter(
+        SyncLog.source == source,
+        SyncLog.status.in_(["success", "partial"]),
+        SyncLog.completed_at.isnot(None)
+    ).order_by(SyncLog.started_at.desc()).limit(5).all()
+
+    if not logs:
+        return None
+
+    durations = [
+        (log.completed_at - log.started_at).total_seconds()
+        for log in logs
+    ]
+    return sum(durations) / len(durations)
+
+
+# =============================================================================
+# Notifications
+# =============================================================================
+
+@router.get("/notifications")
+def get_notifications(db: Session = Depends(get_db)):
+    """
+    Returns unacknowledged sync failure notifications from the last 24 hours.
+    """
+    from datetime import timedelta
+
+    # Get notifications from last 24 hours
+    cutoff = datetime.utcnow() - timedelta(hours=24)
+
+    notifications = db.query(SyncNotification).filter(
+        SyncNotification.acknowledged == False,
+        SyncNotification.created_at >= cutoff
+    ).order_by(SyncNotification.created_at.desc()).all()
+
+    result = []
+    for notif in notifications:
+        # Get the associated sync log
+        sync_log = db.query(SyncLog).filter(SyncLog.id == notif.sync_log_id).first()
+
+        if sync_log:
+            result.append({
+                "id": notif.id,
+                "sync_log_id": notif.sync_log_id,
+                "source": sync_log.source,
+                "status": sync_log.status,
+                "records_failed": sync_log.records_failed,
+                "error_message": sync_log.error_message,
+                "created_at": notif.created_at.isoformat(),
+                "sync_completed_at": sync_log.completed_at.isoformat() if sync_log.completed_at else None
+            })
+
+    return {
+        "count": len(result),
+        "notifications": result
+    }
+
+
+@router.post("/notifications/{notification_id}/dismiss")
+def dismiss_notification(notification_id: int, db: Session = Depends(get_db)):
+    """
+    Dismiss (acknowledge) a single notification.
+    """
+    notification = db.query(SyncNotification).filter(
+        SyncNotification.id == notification_id
+    ).first()
+
+    if not notification:
+        raise HTTPException(status_code=404, detail=f"Notification {notification_id} not found")
+
+    notification.acknowledged = True
+    db.commit()
+
+    return {"message": "Notification dismissed", "id": notification_id}
+
+
+@router.post("/notifications/dismiss-all")
+def dismiss_all_notifications(db: Session = Depends(get_db)):
+    """
+    Dismiss all unacknowledged notifications.
+    """
+    count = db.query(SyncNotification).filter(
+        SyncNotification.acknowledged == False
+    ).update({"acknowledged": True})
+
+    db.commit()
+
+    return {"message": f"Dismissed {count} notification(s)", "count": count}

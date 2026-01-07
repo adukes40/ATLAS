@@ -312,6 +312,13 @@ class SyncLog(Base):
     """
     Tracks all sync operations for history and monitoring.
     Updated by both cron jobs and manual sync triggers.
+
+    Status values:
+    - 'running': Sync in progress
+    - 'success': Completed with no failures
+    - 'partial': Completed with some failures
+    - 'error': Failed completely
+    - 'cancelled': Manually cancelled by user
     """
     __tablename__ = "sync_logs"
 
@@ -319,12 +326,13 @@ class SyncLog(Base):
     source: Mapped[str] = mapped_column(String(50), index=True)  # 'iiq', 'google', 'meraki'
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default='running')  # 'running', 'success', 'error'
+    status: Mapped[str] = mapped_column(String(20), default='running')  # running/success/partial/error/cancelled
     records_processed: Mapped[int] = mapped_column(Integer, default=0)
     records_failed: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    error_details: Mapped[dict] = mapped_column(JSON, default=[])  # Array of {identifier, error, timestamp}
-    triggered_by: Mapped[str] = mapped_column(String(20), default='manual')  # 'cron', 'manual'
+    error_details: Mapped[dict] = mapped_column(JSON, default=[])  # Array of {identifier, error, api_response, timestamp}
+    triggered_by: Mapped[str] = mapped_column(String(20), default='manual')  # 'cron', 'manual', 'scheduled'
+    pid: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Process ID for cancellation
 
 
 # --- LOCAL AUTHENTICATION ---
@@ -359,3 +367,31 @@ class AppSettings(Base):
     is_secret: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # UUID of updater
+
+
+# --- SYNC SCHEDULING ---
+class SyncSchedule(Base):
+    """
+    Schedule configuration for each sync source.
+    Replaces system cron with in-app scheduling.
+    """
+    __tablename__ = "sync_schedules"
+
+    source: Mapped[str] = mapped_column(String(20), primary_key=True)  # 'iiq', 'google', 'meraki'
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    hours: Mapped[list] = mapped_column(JSON, default=[])  # Array of hours to run, e.g., [2, 8, 14, 20]
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Email of updater
+
+
+class SyncNotification(Base):
+    """
+    Notifications for sync failures.
+    Created automatically when sync completes with status 'error' or 'partial'.
+    """
+    __tablename__ = "sync_notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sync_log_id: Mapped[int] = mapped_column(Integer, index=True)  # References sync_logs.id
+    acknowledged: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

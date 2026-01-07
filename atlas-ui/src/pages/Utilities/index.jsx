@@ -2,47 +2,80 @@ import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import {
   Settings, RefreshCw, Database, Clock, Loader2,
-  CheckCircle, AlertCircle, ExternalLink, Calendar
+  CheckCircle, AlertCircle, ExternalLink, Calendar, X
 } from 'lucide-react'
 import SyncCard from './SyncCard'
 import TablePreviewModal from './TablePreviewModal'
 import ErrorLogModal from './ErrorLogModal'
+import ScheduleEditorModal from './ScheduleEditorModal'
 
 export default function UtilitiesIndex() {
   // State
   const [syncStatus, setSyncStatus] = useState(null)
+  const [schedules, setSchedules] = useState({})
   const [syncHistory, setSyncHistory] = useState([])
   const [tables, setTables] = useState([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(null) // 'iiq', 'google', or 'all'
   const [selectedTable, setSelectedTable] = useState(null)
   const [selectedErrorLog, setSelectedErrorLog] = useState(null)
+  const [editingSchedule, setEditingSchedule] = useState(null)
   const [error, setError] = useState(null)
 
   // Polling ref
   const pollingRef = useRef(null)
 
+  // Check if any sync is running
+  const getRunningCount = () => {
+    if (!syncStatus) return 0
+    return ['iiq', 'google', 'meraki'].filter(
+      s => syncStatus[s]?.status === 'running'
+    ).length
+  }
+
+  const getRunningSources = () => {
+    if (!syncStatus) return []
+    return ['iiq', 'google', 'meraki'].filter(
+      s => syncStatus[s]?.status === 'running'
+    )
+  }
+
+  // Calculate ETA based on average durations
+  const getETA = () => {
+    const running = getRunningSources()
+    if (running.length === 0) return null
+
+    // Get max average duration of running syncs
+    const durations = running.map(s => schedules[s]?.avg_duration_seconds || 300)
+    const maxDuration = Math.max(...durations)
+
+    // Estimate remaining time (rough - assumes just started)
+    const mins = Math.ceil(maxDuration / 60)
+    return `~${mins}m`
+  }
+
   // Fetch all data
   const fetchData = async () => {
     try {
-      const [statusRes, historyRes, tablesRes] = await Promise.all([
+      const [statusRes, schedulesRes, historyRes, tablesRes] = await Promise.all([
         axios.get('/api/utilities/sync-status'),
+        axios.get('/api/utilities/schedules'),
         axios.get('/api/utilities/sync-history'),
         axios.get('/api/utilities/tables')
       ])
       setSyncStatus(statusRes.data)
+      setSchedules(schedulesRes.data)
       setSyncHistory(historyRes.data)
       setTables(tablesRes.data)
 
       // Check if any sync is running
-      const iiqRunning = statusRes.data?.iiq?.status === 'running'
-      const googleRunning = statusRes.data?.google?.status === 'running'
+      const anyRunning = ['iiq', 'google', 'meraki'].some(
+        s => statusRes.data[s]?.status === 'running'
+      )
 
-      if (iiqRunning || googleRunning) {
+      if (anyRunning) {
         startPolling()
       } else {
         stopPolling()
-        setSyncing(null)
       }
     } catch (err) {
       console.error('Failed to fetch utilities data:', err)
@@ -52,10 +85,10 @@ export default function UtilitiesIndex() {
     }
   }
 
-  // Start polling for sync status
+  // Start polling for sync status (5 second interval)
   const startPolling = () => {
     if (pollingRef.current) return // Already polling
-    pollingRef.current = setInterval(fetchData, 3000) // Poll every 3 seconds
+    pollingRef.current = setInterval(fetchData, 5000)
   }
 
   // Stop polling
@@ -72,37 +105,69 @@ export default function UtilitiesIndex() {
     return () => stopPolling()
   }, [])
 
-  // Handle sync trigger
+  // Handle single sync trigger
   const handleSync = async (source) => {
     try {
-      setSyncing(source)
       await axios.post(`/api/utilities/sync/${source}`)
       startPolling()
-      // Immediately refresh to show running status
       await fetchData()
     } catch (err) {
       console.error(`Failed to trigger ${source} sync:`, err)
       const errorMsg = err.response?.data?.detail || `Failed to start ${source} sync`
       alert(errorMsg)
-      setSyncing(null)
     }
   }
 
-  // Handle Sync All
+  // Handle Sync All (parallel)
   const handleSyncAll = async () => {
     try {
-      setSyncing('all')
-      // Start IIQ first, Google will run after (sequentially via backend)
-      await axios.post('/api/utilities/sync/iiq')
-      startPolling()
-      await fetchData()
-      // Note: Google sync would need to be triggered after IIQ completes
-      // For now, we'll just start IIQ and let user manually trigger Google if needed
+      const res = await axios.post('/api/utilities/sync/all')
+      if (res.data.started.length > 0) {
+        startPolling()
+        await fetchData()
+      }
+      if (res.data.skipped.length > 0) {
+        const skippedNames = res.data.skipped.map(s => s.source.toUpperCase()).join(', ')
+        console.log(`Skipped already running: ${skippedNames}`)
+      }
     } catch (err) {
       console.error('Failed to trigger sync all:', err)
-      const errorMsg = err.response?.data?.detail || 'Failed to start sync'
+      const errorMsg = err.response?.data?.detail || 'Failed to start syncs'
       alert(errorMsg)
-      setSyncing(null)
+    }
+  }
+
+  // Handle cancel
+  const handleCancel = async (source) => {
+    try {
+      await axios.post(`/api/utilities/sync/${source}/cancel`)
+      await fetchData()
+    } catch (err) {
+      console.error(`Failed to cancel ${source} sync:`, err)
+      const errorMsg = err.response?.data?.detail || `Failed to cancel ${source} sync`
+      alert(errorMsg)
+    }
+  }
+
+  // Handle toggle enabled
+  const handleToggleEnabled = async (source, enabled) => {
+    try {
+      await axios.put(`/api/utilities/schedules/${source}`, { enabled })
+      await fetchData()
+    } catch (err) {
+      console.error(`Failed to update ${source} schedule:`, err)
+    }
+  }
+
+  // Handle schedule save
+  const handleSaveSchedule = async (source, hours) => {
+    try {
+      await axios.put(`/api/utilities/schedules/${source}`, { hours })
+      await fetchData()
+      setEditingSchedule(null)
+    } catch (err) {
+      console.error(`Failed to update ${source} schedule:`, err)
+      throw err
     }
   }
 
@@ -117,7 +182,6 @@ export default function UtilitiesIndex() {
   // Format timestamp - converts UTC to local timezone (EST)
   const formatTimestamp = (iso) => {
     if (!iso) return '-'
-    // Ensure the timestamp is treated as UTC if no timezone specified
     let dateStr = iso
     if (!iso.endsWith('Z') && !iso.includes('+') && !iso.includes('-', 10)) {
       dateStr = iso + 'Z'
@@ -129,12 +193,11 @@ export default function UtilitiesIndex() {
     yesterday.setDate(yesterday.getDate() - 1)
     const isYesterday = date.toDateString() === yesterday.toDateString()
 
-    // Format time in local timezone
     const time = date.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
-      timeZone: 'America/New_York'  // EST/EDT
+      timeZone: 'America/New_York'
     })
 
     if (isToday) return `Today ${time}`
@@ -146,6 +209,27 @@ export default function UtilitiesIndex() {
     }) + ` ${time}`
   }
 
+  // Get status badge color
+  const getStatusBadgeClass = (status) => {
+    switch (status) {
+      case 'success':
+        return 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
+      case 'partial':
+        return 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
+      case 'error':
+        return 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+      case 'cancelled':
+        return 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+      case 'running':
+        return 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+      default:
+        return 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+    }
+  }
+
+  const runningCount = getRunningCount()
+  const runningSources = getRunningSources()
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -156,6 +240,23 @@ export default function UtilitiesIndex() {
 
   return (
     <div className="space-y-6">
+      {/* Progress Banner - shown when syncs are running */}
+      {runningCount > 0 && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
+              <span className="font-medium text-blue-700 dark:text-blue-300">
+                {runningCount} sync{runningCount > 1 ? 's' : ''} running: {runningSources.map(s => s.toUpperCase()).join(', ')}
+              </span>
+            </div>
+            <span className="text-sm text-blue-600 dark:text-blue-400">
+              ETA: {getETA()}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -164,29 +265,20 @@ export default function UtilitiesIndex() {
             <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Utilities</h1>
           </div>
           <p className="text-slate-500 dark:text-slate-400">
-            Sync control, logs, and system management
+            Sync control, scheduling, and system management
           </p>
         </div>
         <button
           onClick={handleSyncAll}
-          disabled={syncing}
+          disabled={runningCount === 3}
           className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${
-            syncing
+            runningCount === 3
               ? 'bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed'
               : 'bg-blue-600 text-white hover:bg-blue-700'
           }`}
         >
-          {syncing ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Syncing...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-4 w-4" />
-              Sync All
-            </>
-          )}
+          <RefreshCw className="h-4 w-4" />
+          Sync All
         </button>
       </div>
 
@@ -206,20 +298,29 @@ export default function UtilitiesIndex() {
           <SyncCard
             source="iiq"
             status={syncStatus?.iiq}
+            schedule={schedules?.iiq}
             onSync={handleSync}
-            disabled={syncing}
+            onCancel={handleCancel}
+            onToggleEnabled={handleToggleEnabled}
+            onEditSchedule={setEditingSchedule}
           />
           <SyncCard
             source="google"
             status={syncStatus?.google}
+            schedule={schedules?.google}
             onSync={handleSync}
-            disabled={syncing}
+            onCancel={handleCancel}
+            onToggleEnabled={handleToggleEnabled}
+            onEditSchedule={setEditingSchedule}
           />
           <SyncCard
             source="meraki"
             status={syncStatus?.meraki}
+            schedule={schedules?.meraki}
             onSync={handleSync}
-            disabled={syncing}
+            onCancel={handleCancel}
+            onToggleEnabled={handleToggleEnabled}
+            onEditSchedule={setEditingSchedule}
           />
         </div>
       </section>
@@ -248,7 +349,7 @@ export default function UtilitiesIndex() {
                   </tr>
                 </thead>
                 <tbody>
-                  {syncHistory.slice(0, 10).map((log) => (
+                  {syncHistory.slice(0, 15).map((log) => (
                     <tr key={log.id} className="border-t border-slate-100 dark:border-slate-700">
                       <td className="py-3 px-4">
                         <span className={`font-medium ${
@@ -281,30 +382,20 @@ export default function UtilitiesIndex() {
                         <span className={`text-xs px-2 py-1 rounded-full ${
                           log.triggered_by === 'manual'
                             ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
+                            : log.triggered_by === 'scheduled'
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
                             : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
                         }`}>
                           {log.triggered_by}
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        {log.status === 'success' ? (
-                          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                            <CheckCircle className="h-4 w-4" />
-                            Success
-                          </span>
-                        ) : log.status === 'error' ? (
-                          <span className="flex items-center gap-1 text-red-600 dark:text-red-400" title={log.error_message}>
-                            <AlertCircle className="h-4 w-4" />
-                            Error
-                          </span>
-                        ) : log.status === 'running' ? (
-                          <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Running
-                          </span>
-                        ) : (
-                          <span className="text-slate-500">{log.status}</span>
-                        )}
+                        <span className={`text-xs px-2 py-1 rounded-full ${getStatusBadgeClass(log.status)}`}>
+                          {log.status === 'running' && (
+                            <Loader2 className="h-3 w-3 animate-spin inline mr-1" />
+                          )}
+                          {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -369,31 +460,6 @@ export default function UtilitiesIndex() {
         </div>
       </section>
 
-      {/* Cron Schedule Section */}
-      <section>
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">
-          Sync Schedule
-        </h2>
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
-          <div className="flex items-start gap-3">
-            <Calendar className="h-5 w-5 text-slate-400 mt-0.5" />
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <span className="text-slate-600 dark:text-slate-300">Google Sync:</span>
-                <span className="font-medium text-slate-800 dark:text-slate-100">Daily at 9:00 PM EST</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-slate-600 dark:text-slate-300">IIQ Sync:</span>
-                <span className="font-medium text-slate-800 dark:text-slate-100">Daily at 10:00 PM EST</span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                Automated syncs run nightly (2:00/3:00 AM UTC). Use manual sync for immediate updates.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* Table Preview Modal */}
       {selectedTable && (
         <TablePreviewModal
@@ -407,6 +473,16 @@ export default function UtilitiesIndex() {
         <ErrorLogModal
           log={selectedErrorLog}
           onClose={() => setSelectedErrorLog(null)}
+        />
+      )}
+
+      {/* Schedule Editor Modal */}
+      {editingSchedule && (
+        <ScheduleEditorModal
+          source={editingSchedule}
+          schedule={schedules[editingSchedule]}
+          onSave={handleSaveSchedule}
+          onClose={() => setEditingSchedule(null)}
         />
       )}
     </div>

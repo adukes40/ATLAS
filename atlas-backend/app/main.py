@@ -109,15 +109,27 @@ app.include_router(reports.router, dependencies=[Depends(require_auth)])
 app.include_router(settings.router)
 
 # =============================================================================
-# STARTUP
+# STARTUP / SHUTDOWN
 # =============================================================================
 @app.on_event("startup")
-def startup_event():
+async def startup_event():
     Base.metadata.create_all(bind=engine)
     print(">> ATLAS Systems Online: Database Connected & Routes Loaded.")
     print(">> Authentication: ENABLED")
     print(">> Rate Limiting: ENABLED")
     print(">> Security Headers: ENABLED")
+
+    # Start the sync scheduler
+    from app.services.sync_scheduler import start_scheduler
+    start_scheduler()
+    print(">> Sync Scheduler: ENABLED")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    from app.services.sync_scheduler import stop_scheduler
+    stop_scheduler()
+    print(">> ATLAS Systems Offline: Scheduler stopped.")
 
 # =============================================================================
 # HEALTH CHECK (No auth required)
