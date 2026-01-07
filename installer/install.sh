@@ -288,14 +288,40 @@ setup_directories() {
 download_source() {
   msg_info "Downloading ATLAS source code"
 
-  rm -rf /tmp/atlas-source 2>/dev/null || true
+  # Check if already a git repo (re-install scenario)
+  if [[ -d "$ATLAS_DIR/.git" ]]; then
+    cd $ATLAS_DIR
+    git fetch origin $GITHUB_BRANCH > /dev/null 2>&1
+    git reset --hard origin/$GITHUB_BRANCH > /dev/null 2>&1
+    msg_ok "Source code updated from git"
+    return
+  fi
 
-  if git clone --depth 1 --branch "$GITHUB_BRANCH" "$GITHUB_REPO" /tmp/atlas-source > /dev/null 2>&1; then
-    [[ -d "/tmp/atlas-source/atlas-backend" ]] && cp -r /tmp/atlas-source/atlas-backend/* $ATLAS_DIR/atlas-backend/
-    [[ -d "/tmp/atlas-source/atlas-ui" ]] && cp -r /tmp/atlas-source/atlas-ui/* $ATLAS_DIR/atlas-ui/
-    [[ -d "/tmp/atlas-source/docs" ]] && cp -r /tmp/atlas-source/docs/* $ATLAS_DIR/docs/
-    rm -rf /tmp/atlas-source
-    msg_ok "Source code downloaded"
+  # Fresh install - clone directly to ATLAS_DIR
+  # First backup any existing files
+  if [[ -f "$ATLAS_DIR/atlas-backend/.env" ]]; then
+    cp $ATLAS_DIR/atlas-backend/.env /tmp/atlas-env-backup 2>/dev/null || true
+  fi
+
+  # Clone repo (full clone for update support)
+  rm -rf /tmp/atlas-clone 2>/dev/null || true
+  if git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" /tmp/atlas-clone > /dev/null 2>&1; then
+    # Move git repo contents to ATLAS_DIR
+    rm -rf $ATLAS_DIR/.git 2>/dev/null || true
+    mv /tmp/atlas-clone/.git $ATLAS_DIR/
+    cp -r /tmp/atlas-clone/atlas-backend/* $ATLAS_DIR/atlas-backend/ 2>/dev/null || true
+    cp -r /tmp/atlas-clone/atlas-ui/* $ATLAS_DIR/atlas-ui/ 2>/dev/null || true
+    [[ -d "/tmp/atlas-clone/docs" ]] && cp -r /tmp/atlas-clone/docs/* $ATLAS_DIR/docs/ 2>/dev/null || true
+    [[ -f "/tmp/atlas-clone/update.sh" ]] && cp /tmp/atlas-clone/update.sh $ATLAS_DIR/
+    [[ -f "/tmp/atlas-clone/CLAUDE.md" ]] && cp /tmp/atlas-clone/CLAUDE.md $ATLAS_DIR/
+    rm -rf /tmp/atlas-clone
+
+    # Restore .env if it existed
+    if [[ -f /tmp/atlas-env-backup ]]; then
+      mv /tmp/atlas-env-backup $ATLAS_DIR/atlas-backend/.env
+    fi
+
+    msg_ok "Source code downloaded (git enabled for updates)"
   else
     if [[ -f "$ATLAS_DIR/atlas-backend/app/main.py" ]]; then
       msg_warn "Using existing source files"
@@ -406,8 +432,16 @@ create_service_user() {
     useradd -r -s /bin/false $ATLAS_USER
   fi
 
+  # Set ownership - atlas user owns most files
   chown -R $ATLAS_USER:$ATLAS_USER $ATLAS_DIR
+
+  # Secure the .env file
   chmod 600 $ATLAS_DIR/atlas-backend/.env
+
+  # Scripts: owned by root, readable/executable by atlas group (security hardening)
+  # This prevents a compromised service from modifying its own sync scripts
+  chown root:$ATLAS_USER $ATLAS_DIR/atlas-backend/scripts/*.py 2>/dev/null || true
+  chmod 750 $ATLAS_DIR/atlas-backend/scripts/*.py 2>/dev/null || true
 
   msg_ok "Service user created"
 }
@@ -623,6 +657,10 @@ print_summary() {
   echo -e "  Status:   systemctl status atlas"
   echo -e "  Logs:     journalctl -u atlas -f"
   echo -e "  Restart:  systemctl restart atlas"
+  echo ""
+  echo -e "${BOLD}Updates:${CL}"
+  echo -e "  To update ATLAS in the future, run:"
+  echo -e "     ${YW}cd /opt/atlas && sudo ./update.sh${CL}"
   echo ""
   echo -e "${DIM}Installation completed at $(date)${CL}"
   echo ""
