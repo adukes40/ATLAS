@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, BigInteger, DateTime, JSON, Boolean
+from sqlalchemy import String, Integer, BigInteger, DateTime, JSON, Boolean, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from datetime import datetime
 from typing import Optional
@@ -395,3 +395,105 @@ class SyncNotification(Base):
     sync_log_id: Mapped[int] = mapped_column(Integer, index=True)  # References sync_logs.id
     acknowledged: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# --- IIQ DATA SOURCES EXPLORER ---
+class IIQSyncConfig(Base):
+    """
+    Configuration for IIQ data source sync discovery.
+    Tracks available IIQ API endpoints and their sync status.
+    """
+    __tablename__ = "iiq_sync_config"
+
+    source_key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    api_endpoint: Mapped[str] = mapped_column(String(200), nullable=False)
+    api_method: Mapped[str] = mapped_column(String(10), default="GET")
+    record_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_synced: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_checked: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    sync_table: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    avg_duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
+class IIQTicket(Base):
+    """
+    IIQ ticket data synced from the tickets API.
+    Tracks help desk tickets, their status, and associated assets/users.
+    """
+    __tablename__ = "iiq_tickets"
+
+    ticket_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    ticket_number: Mapped[Optional[int]] = mapped_column(Integer, index=True, nullable=True)
+    subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[Optional[str]] = mapped_column(String(100), index=True, nullable=True)
+    priority: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    created_date: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True, nullable=True)
+    modified_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    closed_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    owner_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    owner_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    owner_email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    assignee_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    assignee_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    team_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    team_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    asset_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    asset_tag: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    location_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    location_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    meta_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+
+class IIQLocation(Base):
+    """
+    IIQ location/building data.
+    Reference table for locations used across assets, users, and tickets.
+    """
+    __tablename__ = "iiq_locations"
+
+    location_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    abbreviation: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    state: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    zip: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    location_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    parent_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    meta_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+
+class IIQTeam(Base):
+    """
+    IIQ team/support group data.
+    Reference table for teams that handle tickets.
+    """
+    __tablename__ = "iiq_teams"
+
+    team_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    member_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    meta_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+
+class IIQManufacturer(Base):
+    """
+    IIQ manufacturer/vendor data.
+    Reference table for device manufacturers.
+    """
+    __tablename__ = "iiq_manufacturers"
+
+    manufacturer_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    meta_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
