@@ -6,10 +6,24 @@ import {
   Cpu, HardDrive, Layout, ShieldCheck, History,
   Activity, Gauge, Clock, Battery, Globe, Radio, RefreshCw, DollarSign
 } from 'lucide-react'
+import { useIntegrations } from '../context/IntegrationsContext'
 
 // --- CONFIGURATION ---
 // IIQ domain is loaded from environment variable (set in .env or at build time)
 const IIQ_DOMAIN = import.meta.env.VITE_IIQ_URL || "";
+
+// Helper to get vendor border class based on settings
+function getVendorBorderClass(vendor) {
+  const showColors = localStorage.getItem('atlas_vendor_colors') !== 'false'
+  if (!showColors) return ''
+
+  const colors = {
+    iiq: 'border-l-4 border-l-blue-500',
+    google: 'border-l-4 border-l-emerald-500',
+    meraki: 'border-l-4 border-l-purple-500'
+  }
+  return colors[vendor] || ''
+}
 
 export default function Device360() {
   const [serial, setSerial] = useState('')
@@ -17,6 +31,7 @@ export default function Device360() {
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState(null)
+  const { integrations } = useIntegrations()
 
   const handleSearch = async (e) => {
     e.preventDefault()
@@ -290,11 +305,13 @@ export default function Device360() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
 
              {/* Google Hardware Health */}
-             <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
+             {integrations.google && (
+             <div className={`bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 ${getVendorBorderClass('google')}`}>
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-2 text-slate-800 dark:text-slate-100 font-bold">
-                        <Cpu className="h-5 w-5 text-blue-500" />
+                        <Cpu className="h-5 w-5 text-emerald-500" />
                         <span>Hardware Health</span>
+                        <span className="text-xs font-normal text-slate-400">(Google)</span>
                     </div>
                     {data.sources.google?.cpu_temp && (
                         <span className={`text-lg font-mono font-bold ${getTempColor(data.sources.google.cpu_temp)}`}>
@@ -361,12 +378,15 @@ export default function Device360() {
                     </div>
                 </div>
              </div>
+             )}
 
-             {/* Network & Software */}
-             <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
+             {/* Network & Software (Google) */}
+             {integrations.google && (
+             <div className={`bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 ${getVendorBorderClass('google')}`}>
                 <div className="flex items-center gap-2 mb-6 text-slate-800 dark:text-slate-100 font-bold">
                     <Wifi className="h-5 w-5 text-emerald-500" />
                     <span>Connectivity & Software</span>
+                    <span className="text-xs font-normal text-slate-400">(Google)</span>
                 </div>
 
                 <div className="space-y-4">
@@ -415,12 +435,15 @@ export default function Device360() {
                     </div>
                 </div>
              </div>
+             )}
 
-             {/* Network Info */}
-             <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
+             {/* Network Info (Meraki) */}
+             {integrations.meraki && (
+             <div className={`bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 ${getVendorBorderClass('meraki')}`}>
                 <div className="flex items-center gap-2 mb-6 text-slate-800 dark:text-slate-100 font-bold">
                     <Radio className="h-5 w-5 text-purple-500" />
                     <span>Network Info</span>
+                    <span className="text-xs font-normal text-slate-400">(Meraki)</span>
                 </div>
 
                 <div className="space-y-4">
@@ -538,8 +561,9 @@ export default function Device360() {
                     </div>
                 </div>
              </div>
+             )}
 
-             {/* Conflict & Intelligence */}
+             {/* Conflict & Intelligence (Cross-source) */}
              <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-2 mb-6 text-slate-800 dark:text-slate-100 font-bold">
                     <AlertTriangle className="h-5 w-5 text-amber-500" />
