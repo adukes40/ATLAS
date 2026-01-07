@@ -34,12 +34,16 @@ class MerakiBulkSync:
             "Content-Type": "application/json"
         }
         self.timeout = 30
+        self.error_details = []  # Collect detailed errors for logging
 
     def _get(self, endpoint: str, params: dict = None) -> Optional[list | dict]:
-        """Make GET request to Meraki API."""
+        """Make GET request to Meraki API. Returns None on error, empty list on 404."""
         url = f"{self.base_url}{endpoint}"
         try:
             resp = requests.get(url, headers=self.headers, params=params, timeout=self.timeout)
+            if resp.status_code == 404:
+                # 404 is expected for some networks without wireless clients - not an error
+                return []
             resp.raise_for_status()
             return resp.json()
         except requests.exceptions.RequestException as e:
@@ -75,6 +79,11 @@ class MerakiBulkSync:
                 success += 1
             except Exception as e:
                 print(f"[Networks] Error processing {net.get('id')}: {e}")
+                self.error_details.append({
+                    "identifier": f"network:{net.get('id', 'unknown')}",
+                    "error": str(e),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
                 errors += 1
 
         db.commit()
@@ -136,6 +145,11 @@ class MerakiBulkSync:
 
             except Exception as e:
                 print(f"[Devices] Error processing {dev.get('serial')}: {e}")
+                self.error_details.append({
+                    "identifier": f"device:{dev.get('serial', 'unknown')}",
+                    "error": str(e),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
                 errors += 1
 
         db.commit()
@@ -190,10 +204,20 @@ class MerakiBulkSync:
                         success += 1
                     except Exception as e:
                         print(f"[SSIDs] Error processing SSID {ssid.get('number')} in {network.name}: {e}")
+                        self.error_details.append({
+                            "identifier": f"ssid:{network.name}:{ssid.get('number')}",
+                            "error": str(e),
+                            "timestamp": datetime.utcnow().isoformat()
+                        })
                         errors += 1
 
             except Exception as e:
                 print(f"[SSIDs] Error processing network {network.name}: {e}")
+                self.error_details.append({
+                    "identifier": f"ssid-network:{network.name}",
+                    "error": str(e),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
                 errors += 1
 
         db.commit()
@@ -291,10 +315,20 @@ class MerakiBulkSync:
 
                     except Exception as e:
                         print(f"[Clients] Error processing client {client.get('mac')}: {e}")
+                        self.error_details.append({
+                            "identifier": client.get('mac', 'unknown'),
+                            "error": str(e),
+                            "timestamp": datetime.utcnow().isoformat()
+                        })
                         errors += 1
 
             except Exception as e:
                 print(f"[Clients] Error processing network {network.name}: {e}")
+                self.error_details.append({
+                    "identifier": f"network:{network.name}",
+                    "error": str(e),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
                 errors += 1
 
         db.commit()
@@ -367,5 +401,6 @@ class MerakiBulkSync:
             "status": "success" if total_errors == 0 else "partial",
             "total_success": total_success,
             "total_errors": total_errors,
-            "details": results
+            "details": results,
+            "error_details": self.error_details
         }

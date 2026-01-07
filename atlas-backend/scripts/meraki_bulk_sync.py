@@ -76,7 +76,7 @@ def main():
         sync_log.completed_at = datetime.utcnow()
         sync_log.records_processed = result["total_success"]
         sync_log.records_failed = result["total_errors"]
-        sync_log.error_details = []  # Could add detailed errors here if needed
+        sync_log.error_details = result.get("error_details", [])
         db.commit()
 
         print()

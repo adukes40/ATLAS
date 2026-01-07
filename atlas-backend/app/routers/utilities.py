@@ -446,6 +446,8 @@ def get_schedules(db: Session = Depends(get_db)):
             }
         else:
             # Return default schedule (disabled, no hours set)
+            # Still calculate avg duration from sync history
+            avg_duration = _get_average_duration(db, source)
             schedules[source] = {
                 "source": source,
                 "enabled": False,
@@ -453,7 +455,7 @@ def get_schedules(db: Session = Depends(get_db)):
                 "updated_at": None,
                 "updated_by": None,
                 "next_run": None,
-                "avg_duration_seconds": None
+                "avg_duration_seconds": avg_duration
             }
 
     return schedules
