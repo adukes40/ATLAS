@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Monitor, Clock, Globe, Check } from 'lucide-react'
+import { Monitor, Clock, Globe, Check, Palette } from 'lucide-react'
 
 // Common US timezones
 const TIMEZONES = [
@@ -19,22 +19,26 @@ export default function DisplaySettings() {
   const [timeFormat, setTimeFormat] = useState(() =>
     localStorage.getItem('atlas_time_format') || '12'
   )
+  const [showVendorColors, setShowVendorColors] = useState(() =>
+    localStorage.getItem('atlas_vendor_colors') !== 'false'
+  )
   const [saved, setSaved] = useState(false)
 
   // Save to localStorage when changed
   useEffect(() => {
     localStorage.setItem('atlas_timezone', timezone)
     localStorage.setItem('atlas_time_format', timeFormat)
+    localStorage.setItem('atlas_vendor_colors', showVendorColors)
 
     // Dispatch custom event so other components can react
     window.dispatchEvent(new CustomEvent('atlas-settings-changed', {
-      detail: { timezone, timeFormat }
+      detail: { timezone, timeFormat, showVendorColors }
     }))
 
     setSaved(true)
     const timer = setTimeout(() => setSaved(false), 2000)
     return () => clearTimeout(timer)
-  }, [timezone, timeFormat])
+  }, [timezone, timeFormat, showVendorColors])
 
   // Format current time as preview
   const formatPreview = () => {
@@ -130,6 +134,38 @@ export default function DisplaySettings() {
               >
                 24-hour (15:30)
               </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Vendor Colors Setting */}
+      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
+        <div className="flex items-start gap-3">
+          <Palette className="h-5 w-5 text-slate-400 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="font-medium text-slate-800 dark:text-slate-100 mb-1">
+              Vendor Colors
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
+              Show colored borders to indicate data source
+            </p>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setShowVendorColors(!showVendorColors)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  showVendorColors ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'
+                }`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  showVendorColors ? 'translate-x-6' : 'translate-x-1'
+                }`} />
+              </button>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="px-2 py-1 rounded border-l-4 border-l-blue-500 bg-blue-50 dark:bg-blue-900/20 text-slate-600 dark:text-slate-300">IIQ</span>
+                <span className="px-2 py-1 rounded border-l-4 border-l-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-slate-600 dark:text-slate-300">Google</span>
+                <span className="px-2 py-1 rounded border-l-4 border-l-purple-500 bg-purple-50 dark:bg-purple-900/20 text-slate-600 dark:text-slate-300">Meraki</span>
+              </div>
             </div>
           </div>
         </div>
