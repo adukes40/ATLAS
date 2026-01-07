@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { Sun, Moon, LogOut } from 'lucide-react'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { IntegrationsProvider } from './context/IntegrationsContext'
 import Sidebar from './components/Sidebar'
 import NotificationBell from './components/NotificationBell'
 import Device360 from './pages/Device360'
@@ -141,7 +142,9 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppLayout />
+        <IntegrationsProvider>
+          <AppLayout />
+        </IntegrationsProvider>
       </AuthProvider>
     </BrowserRouter>
   )
