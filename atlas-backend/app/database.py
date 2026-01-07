@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# Import Base from models for backwards compatibility (used by installer)
+from app.models import Base
+
 # Database Configuration from environment
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
