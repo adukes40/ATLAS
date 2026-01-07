@@ -8,6 +8,7 @@ import SyncCard from './SyncCard'
 import TablePreviewModal from './TablePreviewModal'
 import ErrorLogModal from './ErrorLogModal'
 import ScheduleEditorModal from './ScheduleEditorModal'
+import IIQSourcesCard from './IIQSourcesCard'
 import { useIntegrations } from '../../context/IntegrationsContext'
 
 export default function UtilitiesIndex() {
@@ -500,6 +501,11 @@ export default function UtilitiesIndex() {
           </div>
         </div>
       </section>
+
+      {/* IIQ Data Sources */}
+      <div className="mt-8">
+        <IIQSourcesCard />
+      </div>
 
       {/* Table Preview Modal */}
       {selectedTable && (
