@@ -125,13 +125,29 @@ fi
 
 # Rebuild frontend
 echo ""
-echo -e "${BLUE}[5/6] Rebuilding frontend...${NC}"
+echo -e "${BLUE}[5/7] Rebuilding frontend...${NC}"
 npm run build --silent
+echo -e "${GREEN}Done${NC}"
+
+# Run database migrations (create any new tables)
+echo ""
+echo -e "${BLUE}[6/7] Running database migrations...${NC}"
+cd "$BACKEND_DIR"
+source venv/bin/activate
+python3 -c "
+import sys
+sys.path.insert(0, '$BACKEND_DIR')
+from app.database import engine, Base
+from app.models import *
+Base.metadata.create_all(bind=engine)
+print('Database tables verified')
+" 2>/dev/null || echo -e "${YELLOW}Warning: Could not verify database tables${NC}"
+deactivate
 echo -e "${GREEN}Done${NC}"
 
 # Restart service
 echo ""
-echo -e "${BLUE}[6/6] Restarting ATLAS service...${NC}"
+echo -e "${BLUE}[7/7] Restarting ATLAS service...${NC}"
 if systemctl is-active --quiet atlas.service; then
     systemctl restart atlas.service
     sleep 2

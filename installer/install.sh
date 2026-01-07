@@ -163,8 +163,9 @@ collect_config() {
   done
   echo ""
 
-  # Generate SECRET_KEY
+  # Generate SECRET_KEY and ENCRYPTION_KEY
   SECRET_KEY=$(openssl rand -hex 32)
+  ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 2>/dev/null || openssl rand -base64 32)
 
   # Review
   echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
@@ -349,6 +350,7 @@ DATABASE_URL=postgresql://atlas_admin:${DB_PASSWORD}@localhost/atlas_db
 
 # Security
 SECRET_KEY=${SECRET_KEY}
+ENCRYPTION_KEY=${ENCRYPTION_KEY}
 
 # CORS
 ALLOWED_ORIGINS=http://${ATLAS_DOMAIN},https://${ATLAS_DOMAIN},http://localhost:5173
