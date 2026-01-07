@@ -100,3 +100,78 @@ def is_service_configured(db: Session, service: str) -> bool:
         if not get_setting(db, key):
             return False
     return True
+
+
+def seed_iiq_sync_config(db: Session) -> int:
+    """
+    Seed the IIQ sync config table with default data sources.
+    Only inserts rows that don't already exist.
+    Returns the number of rows inserted.
+    """
+    from app.models import IIQSyncConfig
+
+    default_sources = [
+        {
+            "source_key": "assets",
+            "display_name": "Assets",
+            "enabled": True,
+            "api_endpoint": "/api/v1.0/assets",
+            "api_method": "POST",
+            "sync_table": "iiq_assets",
+        },
+        {
+            "source_key": "users",
+            "display_name": "Users",
+            "enabled": True,
+            "api_endpoint": "/api/v1.0/users",
+            "api_method": "GET",
+            "sync_table": "iiq_users",
+        },
+        {
+            "source_key": "tickets",
+            "display_name": "Tickets",
+            "enabled": True,
+            "api_endpoint": "/api/v1.0/tickets",
+            "api_method": "POST",
+            "sync_table": "iiq_tickets",
+        },
+        {
+            "source_key": "locations",
+            "display_name": "Locations",
+            "enabled": True,
+            "api_endpoint": "/api/v1.0/locations",
+            "api_method": "GET",
+            "sync_table": "iiq_locations",
+        },
+        {
+            "source_key": "teams",
+            "display_name": "Teams",
+            "enabled": True,
+            "api_endpoint": "/api/v1.0/teams",
+            "api_method": "GET",
+            "sync_table": "iiq_teams",
+        },
+        {
+            "source_key": "manufacturers",
+            "display_name": "Manufacturers",
+            "enabled": True,
+            "api_endpoint": "/api/v1.0/manufacturers",
+            "api_method": "GET",
+            "sync_table": "iiq_manufacturers",
+        },
+    ]
+
+    inserted = 0
+    for source in default_sources:
+        existing = db.query(IIQSyncConfig).filter(
+            IIQSyncConfig.source_key == source["source_key"]
+        ).first()
+        if not existing:
+            config = IIQSyncConfig(**source)
+            db.add(config)
+            inserted += 1
+
+    if inserted > 0:
+        db.commit()
+
+    return inserted

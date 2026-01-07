@@ -14,6 +14,7 @@ from app.services.settings_service import (
     set_multiple_settings,
     is_service_configured,
     get_setting,
+    seed_iiq_sync_config,
 )
 from app.services.local_auth import (
     create_user,
@@ -98,6 +99,14 @@ async def update_settings(
     try:
         user_id = current_user.get("user_id") or current_user.get("email")
         set_multiple_settings(db, data.settings, user_id)
+
+        # If IIQ settings are being saved, seed the sync config table
+        iiq_keys = {"iiq_url", "iiq_token", "iiq_site_id"}
+        if any(key in data.settings for key in iiq_keys):
+            seeded = seed_iiq_sync_config(db)
+            if seeded > 0:
+                import logging
+                logging.info(f"Seeded {seeded} IIQ sync config entries")
 
         # Refresh config cache so new settings take effect
         refresh_config()

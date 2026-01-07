@@ -41,12 +41,12 @@ class IIQPreviewResponse(BaseModel):
 
 def get_iiq_headers():
     """Get IIQ API headers from settings."""
+    site_id = get_config('iiq_site_id') or ""
     return {
         "Authorization": f"Bearer {get_config('iiq_token')}",
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "SiteId": get_config('iiq_site_id') or "",
-        "Client": "ApiClient"
+        "Client": site_id,
     }
 
 
