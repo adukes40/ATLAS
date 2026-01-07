@@ -244,9 +244,10 @@ class MerakiBulkSync:
 
         for network in networks:
             try:
-                # Get wireless clients from last 24 hours (includes rssi)
+                # Get network clients from last 24 hours
+                # Note: Using /clients instead of /wireless/clients (deprecated/404 on many networks)
                 clients = self._get(
-                    f"/networks/{network.network_id}/wireless/clients",
+                    f"/networks/{network.network_id}/clients",
                     params={"timespan": 86400, "perPage": 1000}
                 )
 
