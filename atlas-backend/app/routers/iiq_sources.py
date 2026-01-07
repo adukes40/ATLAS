@@ -7,7 +7,7 @@ import requests
 
 from app.database import get_db
 from app.models import IIQSyncConfig
-from app.config import get_settings
+from app.config import get_config
 
 router = APIRouter(prefix="/api/settings/iiq-sources", tags=["IIQ Sources"])
 
@@ -41,14 +41,18 @@ class IIQPreviewResponse(BaseModel):
 
 def get_iiq_headers():
     """Get IIQ API headers from settings."""
-    settings = get_settings()
     return {
-        "Authorization": f"Bearer {settings.iiq_token}",
+        "Authorization": f"Bearer {get_config('iiq_token')}",
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "SiteId": settings.iiq_site_id or "",
+        "SiteId": get_config('iiq_site_id') or "",
         "Client": "ApiClient"
     }
+
+
+def get_iiq_base_url():
+    """Get IIQ base URL from settings."""
+    return get_config('iiq_url')
 
 
 @router.get("", response_model=IIQSourcesListResponse)
@@ -103,9 +107,8 @@ def preview_source(source_key: str, db: Session = Depends(get_db)):
     if not config:
         raise HTTPException(status_code=404, detail=f"Source '{source_key}' not found")
 
-    settings = get_settings()
     headers = get_iiq_headers()
-    base_url = settings.iiq_url
+    base_url = get_iiq_base_url()
 
     try:
         if config.api_method == "POST":
@@ -149,9 +152,8 @@ def preview_source(source_key: str, db: Session = Depends(get_db)):
 @router.post("/refresh-counts")
 def refresh_counts(db: Session = Depends(get_db)):
     """Re-probe IIQ API to update record counts for all sources."""
-    settings = get_settings()
     headers = get_iiq_headers()
-    base_url = settings.iiq_url
+    base_url = get_iiq_base_url()
 
     results = []
     configs = db.query(IIQSyncConfig).all()
