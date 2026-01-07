@@ -18,7 +18,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal
-from app.config import MERAKI_API_KEY, MERAKI_ORG_ID
+from app.config import get_meraki_config
 from app.services.meraki_bulk_sync import MerakiBulkSync
 from app.models import SyncLog
 
@@ -30,16 +30,21 @@ def main():
     print("=" * 60)
     print()
 
+    # Get Meraki config
+    meraki_cfg = get_meraki_config()
+    api_key = meraki_cfg.get("api_key")
+    org_id = meraki_cfg.get("org_id")
+
     # Validate configuration
-    if not MERAKI_API_KEY:
-        print("ERROR: MERAKI_API_KEY not configured")
+    if not api_key:
+        print("ERROR: Meraki API key not configured")
         sys.exit(1)
 
-    if not MERAKI_ORG_ID:
-        print("ERROR: MERAKI_ORG_ID not configured")
+    if not org_id:
+        print("ERROR: Meraki Organization ID not configured")
         sys.exit(1)
 
-    print(f"Organization ID: {MERAKI_ORG_ID}")
+    print(f"Organization ID: {org_id}")
     print()
 
     # Get database session
@@ -61,7 +66,7 @@ def main():
 
     try:
         # Initialize sync service
-        sync_service = MerakiBulkSync(MERAKI_API_KEY, MERAKI_ORG_ID)
+        sync_service = MerakiBulkSync(api_key, org_id)
 
         # Run bulk sync
         result = sync_service.bulk_sync(db)

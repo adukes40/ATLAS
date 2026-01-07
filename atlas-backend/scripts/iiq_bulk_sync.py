@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal
 from app.services.iiq_sync import IIQConnector
-from app.config import IIQ_URL, IIQ_TOKEN, IIQ_SITE_ID, IIQ_PRODUCT_ID
+from app.config import get_iiq_config
 from app.models import SyncLog
 import logging
 
@@ -56,11 +56,12 @@ def main():
 
     try:
         # Initialize IIQ connector
+        iiq_cfg = get_iiq_config()
         connector = IIQConnector(
-            base_url=IIQ_URL,
-            token=IIQ_TOKEN,
-            site_id=IIQ_SITE_ID,
-            product_id=IIQ_PRODUCT_ID
+            base_url=iiq_cfg["url"],
+            token=iiq_cfg["token"],
+            site_id=iiq_cfg.get("site_id"),
+            product_id=iiq_cfg.get("product_id")
         )
 
         # Run bulk sync for assets

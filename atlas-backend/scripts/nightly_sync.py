@@ -7,13 +7,17 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal
 from app.services.iiq_sync import IIQConnector
-from app.config import IIQ_URL, IIQ_TOKEN
+from app.config import get_iiq_config
 
 def run_sync():
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] >> Starting Nightly Full Sync...")
-    
+
     db = SessionLocal()
-    connector = IIQConnector(IIQ_URL, IIQ_TOKEN)
+    iiq_cfg = get_iiq_config()
+    connector = IIQConnector(
+        iiq_cfg["url"], iiq_cfg["token"],
+        site_id=iiq_cfg.get("site_id"), product_id=iiq_cfg.get("product_id")
+    )
     
     skip = 0
     take = 100

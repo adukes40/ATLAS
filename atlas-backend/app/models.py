@@ -325,3 +325,37 @@ class SyncLog(Base):
     error_message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     error_details: Mapped[dict] = mapped_column(JSON, default=[])  # Array of {identifier, error, timestamp}
     triggered_by: Mapped[str] = mapped_column(String(20), default='manual')  # 'cron', 'manual'
+
+
+# --- LOCAL AUTHENTICATION ---
+class LocalUser(Base):
+    """
+    Local user accounts for ATLAS authentication.
+    Separate from Google OAuth - always available.
+    """
+    __tablename__ = "local_users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID as string
+    username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(20), default="readonly")  # 'admin' or 'readonly'
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # UUID of creator
+
+
+class AppSettings(Base):
+    """
+    Application settings stored in database.
+    Secrets are encrypted using SECRET_KEY from .env.
+    """
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # Encrypted for secrets
+    is_secret: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # UUID of updater

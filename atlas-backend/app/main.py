@@ -9,11 +9,11 @@ from slowapi.errors import RateLimitExceeded
 
 from app.database import engine, get_db
 from app.models import Base
-from app.routers import devices, dashboards, utilities, reports
+from app.routers import devices, dashboards, utilities, reports, settings
 from app.routers import auth as auth_router
 from app.auth import require_auth, get_current_user, SECRET_KEY
 from app.services.iiq_sync import IIQConnector
-from app.config import IIQ_URL, IIQ_TOKEN
+from app.config import get_iiq_config
 from app.middleware.security import SecurityHeadersMiddleware
 
 
@@ -105,6 +105,9 @@ app.include_router(dashboards.router, dependencies=[Depends(require_auth)])
 app.include_router(utilities.router, dependencies=[Depends(require_auth)])
 app.include_router(reports.router, dependencies=[Depends(require_auth)])
 
+# Settings router (require admin - checked per-endpoint)
+app.include_router(settings.router)
+
 # =============================================================================
 # STARTUP
 # =============================================================================
@@ -147,7 +150,11 @@ def sync_single_asset(
     """
     print(f">> [{user.get('email')}] Initiating Sync for Serial: {serial}")
 
-    connector = IIQConnector(IIQ_URL, IIQ_TOKEN)
+    iiq_cfg = get_iiq_config()
+    connector = IIQConnector(
+        iiq_cfg["url"], iiq_cfg["token"],
+        site_id=iiq_cfg.get("site_id"), product_id=iiq_cfg.get("product_id")
+    )
     result = connector.sync_record(db, serial)
 
     if result.get("status") == "error":

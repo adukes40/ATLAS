@@ -9,7 +9,7 @@ from app.schemas import DeviceResponse
 from app.services.iiq_sync import IIQConnector
 from app.services.google_sync import GoogleConnector
 from app.services.meraki_sync import MerakiConnector
-from app.config import IIQ_URL, IIQ_TOKEN, GOOGLE_CREDS_PATH, GOOGLE_ADMIN_EMAIL, MERAKI_API_KEY, MERAKI_ORG_ID
+from app.config import get_iiq_config, get_google_config, get_meraki_config
 from app.auth import get_current_user
 
 
@@ -73,7 +73,11 @@ def get_device_360(request: Request, query: str, db: Session = Depends(get_db)):
     
     # 1. ALWAYS Try Live Sync First (IIQ)
     try:
-        iiq_connector = IIQConnector(IIQ_URL, IIQ_TOKEN)
+        iiq_cfg = get_iiq_config()
+        iiq_connector = IIQConnector(
+            iiq_cfg["url"], iiq_cfg["token"],
+            site_id=iiq_cfg.get("site_id"), product_id=iiq_cfg.get("product_id")
+        )
         sync_result = iiq_connector.sync_record(db, query)
         
         if sync_result.get("status") == "success":
@@ -86,7 +90,12 @@ def get_device_360(request: Request, query: str, db: Session = Depends(get_db)):
 
     # 2. ALWAYS Try Live Sync (Google Admin) - Use Serial from query
     try:
-        google_connector = GoogleConnector(GOOGLE_CREDS_PATH, GOOGLE_ADMIN_EMAIL)
+        google_cfg = get_google_config()
+        google_connector = GoogleConnector(
+            credentials_path=google_cfg.get("credentials_path"),
+            admin_email=google_cfg["admin_email"],
+            credentials_json=google_cfg.get("credentials_json")
+        )
         g_sync_result = google_connector.sync_record(db, query)
         if g_sync_result.get("status") == "success":
              print(f"   >> Google Sync Success: {query}")
@@ -118,7 +127,8 @@ def get_device_360(request: Request, query: str, db: Session = Depends(get_db)):
     # 3.5 ALWAYS Try Live Sync (Meraki) - Use MAC from IIQ/Google
     if target_mac:
         try:
-            meraki_connector = MerakiConnector(MERAKI_API_KEY, MERAKI_ORG_ID)
+            meraki_cfg = get_meraki_config()
+            meraki_connector = MerakiConnector(meraki_cfg["api_key"], meraki_cfg["org_id"])
             m_sync_result = meraki_connector.sync_record(db, target_mac)
             if m_sync_result.get("status") == "success":
                 print(f"   >> Meraki Sync Success: {m_sync_result.get('ap_name')}")

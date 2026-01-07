@@ -10,7 +10,9 @@ import IIQDashboard from './pages/Dashboards/IIQDashboard'
 import MerakiDashboard from './pages/Dashboards/MerakiDashboard'
 import ReportsIndex from './pages/Reports/index'
 import UtilitiesIndex from './pages/Utilities/index'
+import SettingsIndex from './pages/Settings/index'
 import Login from './pages/Login'
+import PasswordChangeModal from './components/PasswordChangeModal'
 
 // Layout component that handles responsive width based on route
 function AppLayout() {
@@ -113,7 +115,11 @@ function AppLayout() {
             <Route path="/dashboards/meraki" element={<MerakiDashboard />} />
             <Route path="/reports/*" element={<ReportsIndex />} />
             <Route path="/utilities/*" element={<UtilitiesIndex />} />
+            <Route path="/settings/*" element={<SettingsIndex />} />
           </Routes>
+
+          {/* Password Change Modal - shown when must_change_password is true */}
+          <PasswordChangeModal />
         </main>
 
         {/* Footer */}

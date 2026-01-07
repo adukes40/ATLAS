@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from sqlalchemy.orm import Session
@@ -13,13 +14,31 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class GoogleConnector:
-    def __init__(self, credentials_path: str, admin_email: str):
+    def __init__(self, credentials_path: str = None, admin_email: str = None, credentials_json: str = None):
+        """
+        Initialize Google Admin connector.
+
+        Args:
+            credentials_path: Path to service account JSON file (legacy/fallback)
+            admin_email: Admin email for domain-wide delegation
+            credentials_json: Service account JSON as a string (from database)
+        """
         self.scopes = [
             'https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly',
             'https://www.googleapis.com/auth/admin.directory.user.readonly'
         ]
-        self.credentials = service_account.Credentials.from_service_account_file(
-            credentials_path, scopes=self.scopes)
+
+        # Prefer credentials_json (from database) over file path
+        if credentials_json:
+            creds_info = json.loads(credentials_json)
+            self.credentials = service_account.Credentials.from_service_account_info(
+                creds_info, scopes=self.scopes)
+        elif credentials_path:
+            self.credentials = service_account.Credentials.from_service_account_file(
+                credentials_path, scopes=self.scopes)
+        else:
+            raise ValueError("Either credentials_json or credentials_path must be provided")
+
         self.delegated_credentials = self.credentials.with_subject(admin_email)
         self.service = build('admin', 'directory_v1', credentials=self.delegated_credentials)
 

@@ -1,7 +1,7 @@
 """
 ATLAS Authentication Module
-Google OAuth 2.0 with group-based authorization.
-Users must be members of the required Google Group to access the application.
+Supports both local authentication and Google OAuth 2.0.
+Local auth is always available; Google OAuth is optional (enabled via settings).
 """
 import os
 from typing import Optional
@@ -15,36 +15,19 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from dotenv import load_dotenv
 
+from app.database import SessionLocal
+from app.services.settings_service import get_setting
+
 load_dotenv()
 
 # =============================================================================
-# Configuration
+# Configuration (from .env - only SECRET_KEY needed)
 # =============================================================================
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
 SECRET_KEY = os.getenv("SECRET_KEY")
-ALLOWED_DOMAIN = os.getenv("ALLOWED_DOMAIN")  # Required - no default
-REQUIRED_GROUP = os.getenv("REQUIRED_GROUP")
-GOOGLE_CREDS_PATH = os.getenv("GOOGLE_CREDS_PATH", "google_credentials.json")
-GOOGLE_ADMIN_EMAIL = os.getenv("GOOGLE_ADMIN_EMAIL")
 
 # Session settings
 SESSION_COOKIE_NAME = "atlas_session"
 SESSION_MAX_AGE = 8 * 60 * 60  # 8 hours
-
-# =============================================================================
-# OAuth Client Setup
-# =============================================================================
-oauth = OAuth()
-oauth.register(
-    name='google',
-    client_id=GOOGLE_CLIENT_ID,
-    client_secret=GOOGLE_CLIENT_SECRET,
-    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-    client_kwargs={
-        'scope': 'openid email profile',
-    }
-)
 
 # =============================================================================
 # Session Serializer
@@ -55,52 +38,137 @@ else:
     serializer = None
 
 
+def get_oauth_client():
+    """
+    Get configured OAuth client, or None if not configured.
+    Reads settings from database.
+    """
+    db = SessionLocal()
+    try:
+        client_id = get_setting(db, "oauth_client_id")
+        client_secret = get_setting(db, "oauth_client_secret")
+
+        if not client_id or not client_secret:
+            return None
+
+        oauth = OAuth()
+        oauth.register(
+            name='google',
+            client_id=client_id,
+            client_secret=client_secret,
+            server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+            client_kwargs={
+                'scope': 'openid email profile',
+            }
+        )
+        return oauth
+    finally:
+        db.close()
+
+
+def is_oauth_enabled() -> bool:
+    """Check if Google OAuth is enabled in settings."""
+    db = SessionLocal()
+    try:
+        enabled = get_setting(db, "oauth_enabled")
+        return enabled == "true"
+    finally:
+        db.close()
+
+
+def get_oauth_settings() -> dict:
+    """Get all OAuth-related settings."""
+    db = SessionLocal()
+    try:
+        return {
+            "enabled": get_setting(db, "oauth_enabled") == "true",
+            "allowed_domain": get_setting(db, "oauth_allowed_domain"),
+            "admin_group": get_setting(db, "oauth_admin_group"),
+            "user_group": get_setting(db, "oauth_user_group"),
+        }
+    finally:
+        db.close()
+
+
 # =============================================================================
 # Google Admin SDK Client (for group membership check)
 # =============================================================================
-@lru_cache(maxsize=1)
 def get_admin_service():
     """
     Create Google Admin SDK service for group membership checks.
-    Uses the same service account as data sync.
+    Uses credentials from database settings.
     """
-    if not os.path.exists(GOOGLE_CREDS_PATH):
-        raise RuntimeError(f"Google credentials file not found: {GOOGLE_CREDS_PATH}")
+    db = SessionLocal()
+    try:
+        creds_json = get_setting(db, "google_credentials_json")
+        admin_email = get_setting(db, "google_admin_email")
 
-    scopes = ['https://www.googleapis.com/auth/admin.directory.group.member.readonly']
-    credentials = service_account.Credentials.from_service_account_file(
-        GOOGLE_CREDS_PATH, scopes=scopes
-    )
-    delegated_credentials = credentials.with_subject(GOOGLE_ADMIN_EMAIL)
-    return build('admin', 'directory_v1', credentials=delegated_credentials)
+        if not creds_json or not admin_email:
+            raise RuntimeError("Google credentials not configured")
+
+        import json
+        import tempfile
+
+        # Write credentials to temp file for Google SDK
+        creds_dict = json.loads(creds_json)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(creds_dict, f)
+            temp_path = f.name
+
+        try:
+            scopes = ['https://www.googleapis.com/auth/admin.directory.group.member.readonly']
+            credentials = service_account.Credentials.from_service_account_file(
+                temp_path, scopes=scopes
+            )
+            delegated_credentials = credentials.with_subject(admin_email)
+            return build('admin', 'directory_v1', credentials=delegated_credentials)
+        finally:
+            os.unlink(temp_path)
+    finally:
+        db.close()
 
 
-def check_group_membership(user_email: str) -> bool:
+def check_group_membership(user_email: str, group_email: str) -> bool:
     """
-    Check if user is a member of the required Google Group.
+    Check if user is a member of a Google Group.
     Returns True if user is a member, False otherwise.
     """
-    if not REQUIRED_GROUP:
-        # No group requirement configured - allow all domain users
-        return True
+    if not group_email:
+        return False
 
     try:
         service = get_admin_service()
         result = service.members().hasMember(
-            groupKey=REQUIRED_GROUP,
+            groupKey=group_email,
             memberKey=user_email
         ).execute()
         return result.get('isMember', False)
     except HttpError as e:
         if e.resp.status == 404:
-            # User not found in group
             return False
-        # Log other errors but don't block authentication
         print(f"[Auth] Error checking group membership: {e}")
         return False
     except Exception as e:
         print(f"[Auth] Unexpected error checking group membership: {e}")
         return False
+
+
+def get_google_user_role(user_email: str) -> Optional[str]:
+    """
+    Determine user's role based on Google Group membership.
+    Returns 'admin', 'readonly', or None if not in any group.
+    """
+    settings = get_oauth_settings()
+
+    # Check admin group first
+    if settings.get("admin_group") and check_group_membership(user_email, settings["admin_group"]):
+        return "admin"
+
+    # Check user group
+    if settings.get("user_group") and check_group_membership(user_email, settings["user_group"]):
+        return "readonly"
+
+    return None
 
 
 # =============================================================================
@@ -139,11 +207,6 @@ def get_current_user(request: Request) -> Optional[dict]:
     if not user_data:
         return None
 
-    # Verify domain is still correct
-    email = user_data.get("email", "")
-    if not email.endswith(f"@{ALLOWED_DOMAIN}"):
-        return None
-
     return user_data
 
 
@@ -162,25 +225,42 @@ def require_auth(request: Request) -> dict:
     return user
 
 
+def require_admin(request: Request) -> dict:
+    """
+    FastAPI dependency that requires admin role.
+    Raises 401 if not authenticated, 403 if not admin.
+    """
+    user = require_auth(request)
+    if user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    return user
+
+
 # =============================================================================
-# User Validation
+# User Validation for Google OAuth
 # =============================================================================
-def validate_google_user(user_info: dict) -> tuple[bool, str]:
+def validate_google_user(user_info: dict) -> tuple[bool, str, str]:
     """
     Validate that the Google user meets all requirements:
     1. Email is from the allowed domain
-    2. User is a member of the required group
+    2. User is a member of admin or user group
 
-    Returns (is_valid, error_message)
+    Returns (is_valid, error_message, role)
     """
     email = user_info.get("email", "")
+    settings = get_oauth_settings()
 
     # Check domain
-    if not email.endswith(f"@{ALLOWED_DOMAIN}"):
-        return False, f"Access restricted to @{ALLOWED_DOMAIN} accounts"
+    allowed_domain = settings.get("allowed_domain")
+    if allowed_domain and not email.endswith(f"@{allowed_domain}"):
+        return False, f"Access restricted to @{allowed_domain} accounts", ""
 
-    # Check group membership
-    if REQUIRED_GROUP and not check_group_membership(email):
-        return False, f"Access restricted to members of {REQUIRED_GROUP}"
+    # Check group membership and get role
+    role = get_google_user_role(email)
+    if not role:
+        return False, "Access restricted. You must be a member of an authorized group.", ""
 
-    return True, ""
+    return True, "", role

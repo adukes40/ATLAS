@@ -18,7 +18,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal
-from app.config import GOOGLE_CREDS_PATH, GOOGLE_ADMIN_EMAIL
+from app.config import get_google_config
 from app.services.google_sync import GoogleConnector
 from app.models import SyncLog
 
@@ -27,20 +27,43 @@ def main():
     print("ATLAS Google Bulk Sync (Devices + Users)")
     print("=" * 60)
 
-    # Resolve credentials path relative to backend directory
-    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    creds_path = os.path.join(backend_dir, GOOGLE_CREDS_PATH)
+    # Get Google config
+    google_cfg = get_google_config()
+    admin_email = google_cfg.get("admin_email")
+    credentials_json = google_cfg.get("credentials_json")
+    credentials_path = google_cfg.get("credentials_path")
 
-    if not os.path.exists(creds_path):
-        print(f"ERROR: Credentials file not found at {creds_path}")
+    # Validate configuration
+    if not admin_email:
+        print("ERROR: Google Admin email not configured")
         sys.exit(1)
 
-    print(f"Using credentials: {creds_path}")
-    print(f"Admin email: {GOOGLE_ADMIN_EMAIL}")
-    print()
+    # Resolve credentials - prefer JSON from database, fall back to file
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    # Initialize connector
-    connector = GoogleConnector(creds_path, GOOGLE_ADMIN_EMAIL)
+    if credentials_json:
+        print("Using credentials from database")
+        print(f"Admin email: {admin_email}")
+        connector = GoogleConnector(
+            admin_email=admin_email,
+            credentials_json=credentials_json
+        )
+    elif credentials_path:
+        creds_path = os.path.join(backend_dir, credentials_path)
+        if not os.path.exists(creds_path):
+            print(f"ERROR: Credentials file not found at {creds_path}")
+            sys.exit(1)
+        print(f"Using credentials file: {creds_path}")
+        print(f"Admin email: {admin_email}")
+        connector = GoogleConnector(
+            credentials_path=creds_path,
+            admin_email=admin_email
+        )
+    else:
+        print("ERROR: No Google credentials configured")
+        sys.exit(1)
+
+    print()
 
     # Get database session
     db = SessionLocal()
