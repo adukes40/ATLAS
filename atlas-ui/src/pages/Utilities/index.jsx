@@ -121,8 +121,8 @@ export default function UtilitiesIndex() {
 
     try {
       await axios.post(`/api/utilities/sync/${source}`)
-      // Fetch immediately to update history log
-      await fetchData()
+      // Don't fetch immediately - the subprocess needs time to create its SyncLog
+      // Let the 5-second polling naturally pick up the status
     } catch (err) {
       console.error(`Failed to trigger ${source} sync:`, err)
       const errorMsg = err.response?.data?.detail || `Failed to start ${source} sync`
@@ -153,8 +153,8 @@ export default function UtilitiesIndex() {
         const skippedNames = res.data.skipped.map(s => s.source.toUpperCase()).join(', ')
         console.log(`Skipped already running: ${skippedNames}`)
       }
-      // Fetch immediately to update history log
-      await fetchData()
+      // Don't fetch immediately - the subprocesses need time to create their SyncLogs
+      // Let the 5-second polling naturally pick up the status
     } catch (err) {
       console.error('Failed to trigger sync all:', err)
       const errorMsg = err.response?.data?.detail || 'Failed to start syncs'
