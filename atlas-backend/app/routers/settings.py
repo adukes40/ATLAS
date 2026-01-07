@@ -251,15 +251,24 @@ async def _test_google_connection(db) -> TestConnectionResult:
 
 
 async def _test_meraki_connection(db) -> TestConnectionResult:
-    """Test Meraki Dashboard API connection."""
+    """Test Meraki Dashboard API connection. Supports multiple comma-separated org IDs."""
     try:
         api_key = get_setting(db, "meraki_api_key")
-        org_id = get_setting(db, "meraki_org_id")
+        org_ids_str = get_setting(db, "meraki_org_id")
 
-        if not api_key or not org_id:
+        if not api_key or not org_ids_str:
             return TestConnectionResult(
                 success=False,
                 message="Meraki API key or org ID not configured"
+            )
+
+        # Parse comma-separated org IDs
+        org_ids = [oid.strip() for oid in org_ids_str.split(",") if oid.strip()]
+
+        if not org_ids:
+            return TestConnectionResult(
+                success=False,
+                message="No valid organization IDs configured"
             )
 
         import httpx
@@ -269,24 +278,45 @@ async def _test_meraki_connection(db) -> TestConnectionResult:
             "Accept": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                f"https://api.meraki.com/api/v1/organizations/{org_id}/networks",
-                headers=headers
-            )
+        total_networks = 0
+        successful_orgs = []
+        failed_orgs = []
 
-            if response.status_code == 200:
-                networks = response.json()
-                return TestConnectionResult(
-                    success=True,
-                    message="Connected successfully",
-                    sample_data={"total_networks": len(networks)}
-                )
-            else:
-                return TestConnectionResult(
-                    success=False,
-                    message=f"API returned status {response.status_code}"
-                )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for org_id in org_ids:
+                try:
+                    response = await client.get(
+                        f"https://api.meraki.com/api/v1/organizations/{org_id}/networks",
+                        headers=headers
+                    )
+
+                    if response.status_code == 200:
+                        networks = response.json()
+                        total_networks += len(networks)
+                        successful_orgs.append(org_id)
+                    else:
+                        failed_orgs.append(f"{org_id} (status {response.status_code})")
+                except Exception as e:
+                    failed_orgs.append(f"{org_id} ({str(e)[:50]})")
+
+        if successful_orgs:
+            message = f"Connected to {len(successful_orgs)} org(s)"
+            if failed_orgs:
+                message += f", {len(failed_orgs)} failed"
+            return TestConnectionResult(
+                success=True,
+                message=message,
+                sample_data={
+                    "total_networks": total_networks,
+                    "orgs_connected": len(successful_orgs),
+                    "orgs_failed": len(failed_orgs)
+                }
+            )
+        else:
+            return TestConnectionResult(
+                success=False,
+                message=f"All orgs failed: {', '.join(failed_orgs)}"
+            )
     except Exception as e:
         return TestConnectionResult(
             success=False,

@@ -7,27 +7,37 @@ Handles nightly bulk synchronization of Meraki data:
 - SSIDs (wireless config)
 - Clients (24h rolling window)
 
+Supports multiple organization IDs (comma-separated in config).
+
 Usage:
     from app.services.meraki_bulk_sync import MerakiBulkSync
 
-    sync = MerakiBulkSync(api_key, org_id)
+    sync = MerakiBulkSync(api_key, "org1,org2,org3")
     result = sync.bulk_sync(db)
 """
 
 import requests
 from datetime import datetime
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 
 from app.models import MerakiNetwork, MerakiDevice, MerakiSSID, MerakiClient
 
 
 class MerakiBulkSync:
-    """Bulk sync service for Meraki data."""
+    """Bulk sync service for Meraki data. Supports multiple orgs."""
 
-    def __init__(self, api_key: str, org_id: str):
+    def __init__(self, api_key: str, org_ids: str):
+        """
+        Initialize Meraki bulk sync.
+
+        Args:
+            api_key: Meraki API key
+            org_ids: Single org ID or comma-separated list of org IDs
+        """
         self.api_key = api_key
-        self.org_id = org_id
+        # Parse comma-separated org IDs
+        self.org_ids = [oid.strip() for oid in org_ids.split(",") if oid.strip()]
         self.base_url = "https://api.meraki.com/api/v1"
         self.headers = {
             "Authorization": f"Bearer {api_key}",
@@ -35,6 +45,7 @@ class MerakiBulkSync:
         }
         self.timeout = 30
         self.error_details = []  # Collect detailed errors for logging
+        self._current_org_id = None  # Track current org being synced
 
     def _get(self, endpoint: str, params: dict = None) -> Optional[list | dict]:
         """Make GET request to Meraki API. Returns None on error, empty list on 404."""
@@ -55,8 +66,8 @@ class MerakiBulkSync:
         Sync all networks from Meraki to meraki_networks table.
         Returns: {"success": int, "errors": int}
         """
-        print("[Networks] Fetching from Meraki API...")
-        networks = self._get(f"/organizations/{self.org_id}/networks")
+        print(f"[Networks] Fetching from Meraki API (org: {self._current_org_id})...")
+        networks = self._get(f"/organizations/{self._current_org_id}/networks")
 
         if networks is None:
             return {"success": 0, "errors": 1, "message": "API request failed"}
@@ -96,15 +107,15 @@ class MerakiBulkSync:
         Also fetches device statuses for online/offline state.
         Returns: {"success": int, "errors": int, "aps": int, "switches": int}
         """
-        print("[Devices] Fetching devices from Meraki API...")
-        devices = self._get(f"/organizations/{self.org_id}/devices")
+        print(f"[Devices] Fetching devices from Meraki API (org: {self._current_org_id})...")
+        devices = self._get(f"/organizations/{self._current_org_id}/devices")
 
         if devices is None:
             return {"success": 0, "errors": 1, "message": "API request failed"}
 
         # Fetch statuses separately for online/offline info
         print("[Devices] Fetching device statuses...")
-        statuses_list = self._get(f"/organizations/{self.org_id}/devices/statuses")
+        statuses_list = self._get(f"/organizations/{self._current_org_id}/devices/statuses")
         statuses = {}
         if statuses_list:
             statuses = {s["serial"]: s.get("status", "unknown") for s in statuses_list}
@@ -338,51 +349,72 @@ class MerakiBulkSync:
 
     def bulk_sync(self, db: Session) -> dict:
         """
-        Run full bulk sync of all Meraki data.
+        Run full bulk sync of all Meraki data across all configured orgs.
         Order: Networks → Devices → SSIDs → Clients
 
         Returns summary of all sync operations.
         """
         print("=" * 60)
         print("MERAKI BULK SYNC")
-        print(f"Organization: {self.org_id}")
+        print(f"Organizations: {', '.join(self.org_ids)}")
         print(f"Started: {datetime.utcnow().isoformat()}")
         print("=" * 60)
         print()
 
+        # Aggregate results across all orgs
         results = {
             "networks": {"success": 0, "errors": 0},
-            "devices": {"success": 0, "errors": 0},
-            "ssids": {"success": 0, "errors": 0},
-            "clients": {"success": 0, "errors": 0}
+            "devices": {"success": 0, "errors": 0, "aps": 0, "switches": 0},
+            "ssids": {"success": 0, "errors": 0, "networks_processed": 0},
+            "clients": {"success": 0, "errors": 0, "networks_processed": 0}
         }
 
-        # Phase 1: Networks (reference data needed by other syncs)
+        for org_id in self.org_ids:
+            self._current_org_id = org_id
+            print()
+            print("*" * 60)
+            print(f"SYNCING ORGANIZATION: {org_id}")
+            print("*" * 60)
+            print()
+
+            # Phase 1: Networks (reference data needed by other syncs)
+            print("-" * 40)
+            print("Phase 1: Networks")
+            print("-" * 40)
+            net_result = self.sync_networks(db)
+            results["networks"]["success"] += net_result.get("success", 0)
+            results["networks"]["errors"] += net_result.get("errors", 0)
+            print()
+
+            # Phase 2: Devices (APs + switches)
+            print("-" * 40)
+            print("Phase 2: Devices (APs + Switches)")
+            print("-" * 40)
+            dev_result = self.sync_devices(db)
+            results["devices"]["success"] += dev_result.get("success", 0)
+            results["devices"]["errors"] += dev_result.get("errors", 0)
+            results["devices"]["aps"] += dev_result.get("aps", 0)
+            results["devices"]["switches"] += dev_result.get("switches", 0)
+            print()
+
+        # Phase 3: SSIDs (uses networks from DB, so run after all orgs synced)
         print("-" * 40)
-        print("Phase 1: Networks")
+        print("Phase 3: SSIDs (all networks)")
         print("-" * 40)
-        results["networks"] = self.sync_networks(db)
+        ssid_result = self.sync_ssids(db)
+        results["ssids"]["success"] = ssid_result.get("success", 0)
+        results["ssids"]["errors"] = ssid_result.get("errors", 0)
+        results["ssids"]["networks_processed"] = ssid_result.get("networks_processed", 0)
         print()
 
-        # Phase 2: Devices (APs + switches)
+        # Phase 4: Clients (uses networks from DB)
         print("-" * 40)
-        print("Phase 2: Devices (APs + Switches)")
+        print("Phase 4: Clients (24h window, all networks)")
         print("-" * 40)
-        results["devices"] = self.sync_devices(db)
-        print()
-
-        # Phase 3: SSIDs
-        print("-" * 40)
-        print("Phase 3: SSIDs")
-        print("-" * 40)
-        results["ssids"] = self.sync_ssids(db)
-        print()
-
-        # Phase 4: Clients
-        print("-" * 40)
-        print("Phase 4: Clients (24h window)")
-        print("-" * 40)
-        results["clients"] = self.sync_clients(db)
+        client_result = self.sync_clients(db)
+        results["clients"]["success"] = client_result.get("success", 0)
+        results["clients"]["errors"] = client_result.get("errors", 0)
+        results["clients"]["networks_processed"] = client_result.get("networks_processed", 0)
         print()
 
         # Summary
@@ -391,6 +423,7 @@ class MerakiBulkSync:
 
         print("=" * 60)
         print("SYNC COMPLETE")
+        print(f"Organizations synced: {len(self.org_ids)}")
         print(f"Networks: {results['networks']['success']} synced")
         print(f"Devices: {results['devices']['success']} synced ({results['devices'].get('aps', 0)} APs, {results['devices'].get('switches', 0)} switches)")
         print(f"SSIDs: {results['ssids']['success']} synced")
@@ -402,6 +435,7 @@ class MerakiBulkSync:
             "status": "success" if total_errors == 0 else "partial",
             "total_success": total_success,
             "total_errors": total_errors,
+            "orgs_synced": len(self.org_ids),
             "details": results,
             "error_details": self.error_details
         }

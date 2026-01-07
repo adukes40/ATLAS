@@ -150,21 +150,21 @@ export default function MerakiSettings() {
           </p>
         </div>
 
-        {/* Organization ID */}
+        {/* Organization ID(s) */}
         <div>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-            Organization ID
+            Organization ID(s)
           </label>
           <input
             type="text"
             name="meraki_org_id"
             value={settings.meraki_org_id}
             onChange={handleChange}
-            placeholder="e.g., 668784544664519004"
+            placeholder="e.g., 668784544664519004, 668784544664519005"
             className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Find in Meraki Dashboard URL or via API
+            Comma-separated for multiple organizations. Find in Meraki Dashboard URL or via API.
           </p>
         </div>
 
@@ -214,9 +214,14 @@ export default function MerakiSettings() {
                 {testResult.message}
               </p>
               {testResult.sample_data && (
-                <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
-                  Found {testResult.sample_data.total_networks} networks
-                </p>
+                <div className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
+                  <p>Found {testResult.sample_data.total_networks} networks across {testResult.sample_data.orgs_connected || 1} organization(s)</p>
+                  {testResult.sample_data.orgs_failed > 0 && (
+                    <p className="text-amber-600 dark:text-amber-400">
+                      {testResult.sample_data.orgs_failed} organization(s) failed to connect
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </div>

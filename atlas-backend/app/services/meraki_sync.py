@@ -4,15 +4,23 @@ from app.models import NetworkCache
 from datetime import datetime
 
 class MerakiConnector:
-    def __init__(self, api_key: str, org_id: str):
+    def __init__(self, api_key: str, org_ids: str):
+        """
+        Initialize Meraki connector.
+
+        Args:
+            api_key: Meraki API key
+            org_ids: Single org ID or comma-separated list of org IDs
+        """
         self.api_key = api_key
-        self.org_id = org_id
+        # Parse comma-separated org IDs
+        self.org_ids = [oid.strip() for oid in org_ids.split(",") if oid.strip()]
         self.base_url = "https://api.meraki.com/api/v1"
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
-        self._wireless_network_ids = None
+        self._wireless_network_ids_by_org = {}  # Cache per org
         self._ap_name_cache = {}
 
     def _get_ap_name(self, network_id: str, ap_mac: str) -> str | None:
@@ -43,34 +51,35 @@ class MerakiConnector:
             print(f"[Meraki] AP lookup error: {e}")
             return None
 
-    def _get_wireless_network_ids(self) -> list:
+    def _get_wireless_network_ids(self, org_id: str) -> list:
         """
-        Fetches and caches network IDs where name contains 'Wireless'.
+        Fetches and caches network IDs where name contains 'Wireless' for a given org.
         This filters out switch networks to ensure only AP data is returned.
         """
-        if self._wireless_network_ids is not None:
-            return self._wireless_network_ids
+        if org_id in self._wireless_network_ids_by_org:
+            return self._wireless_network_ids_by_org[org_id]
 
         try:
-            url = f"{self.base_url}/organizations/{self.org_id}/networks"
+            url = f"{self.base_url}/organizations/{org_id}/networks"
             resp = requests.get(url, headers=self.headers, timeout=10)
             resp.raise_for_status()
 
             networks = resp.json()
             # Check for both "Wireless" and "wireless" in network names
-            self._wireless_network_ids = [
+            wireless_ids = [
                 n["id"] for n in networks
                 if "Wireless" in n.get("name", "") or "wireless" in n.get("name", "")
             ]
-            print(f"[Meraki] Cached {len(self._wireless_network_ids)} wireless networks")
-            return self._wireless_network_ids
+            self._wireless_network_ids_by_org[org_id] = wireless_ids
+            print(f"[Meraki] Cached {len(wireless_ids)} wireless networks for org {org_id}")
+            return wireless_ids
         except Exception as e:
-            print(f"[Meraki] Failed to fetch networks: {e}")
+            print(f"[Meraki] Failed to fetch networks for org {org_id}: {e}")
             return []
 
     def fetch_client_by_mac(self, mac: str) -> dict | None:
         """
-        Fetches client info by MAC address from wireless networks only.
+        Fetches client info by MAC address from wireless networks across all configured orgs.
         Returns the most recent AP connection data.
         """
         if not mac:
@@ -85,78 +94,82 @@ class MerakiConnector:
         # Format as colon-separated for Meraki API
         formatted_mac = ":".join(clean_mac[i:i+2] for i in range(0, 12, 2))
 
-        wireless_ids = self._get_wireless_network_ids()
-        if not wireless_ids:
-            print("[Meraki] No wireless networks found")
+        # Search across all orgs
+        all_wireless_records = []
+
+        for org_id in self.org_ids:
+            wireless_ids = self._get_wireless_network_ids(org_id)
+            if not wireless_ids:
+                continue
+
+            try:
+                url = f"{self.base_url}/organizations/{org_id}/clients/search"
+                params = {"mac": formatted_mac}
+                resp = requests.get(url, headers=self.headers, params=params, timeout=10)
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    records = data.get("records", [])
+
+                    # Filter to wireless networks only (AP data)
+                    wireless_records = [
+                        r for r in records
+                        if r.get("network", {}).get("id") in wireless_ids
+                    ]
+                    all_wireless_records.extend(wireless_records)
+
+                elif resp.status_code == 404:
+                    print(f"[Meraki] MAC {formatted_mac} not found in org {org_id}")
+                else:
+                    print(f"[Meraki] API returned {resp.status_code} for org {org_id}")
+
+            except Exception as e:
+                print(f"[Meraki] API Error for org {org_id}: {e}")
+
+        if not all_wireless_records:
+            print(f"[Meraki] No wireless networks found or MAC not found across {len(self.org_ids)} org(s)")
             return None
 
-        try:
-            url = f"{self.base_url}/organizations/{self.org_id}/clients/search"
-            params = {"mac": formatted_mac}
-            resp = requests.get(url, headers=self.headers, params=params, timeout=10)
+        # Sort by lastSeen to get most recent across all orgs
+        all_wireless_records.sort(
+            key=lambda x: x.get("lastSeen", 0),
+            reverse=True
+        )
+        record = all_wireless_records[0]
 
-            if resp.status_code == 200:
-                data = resp.json()
-                records = data.get("records", [])
+        # Get AP name - try looking up by recentDeviceMac first
+        ap_name = None
+        network_id = record.get("network", {}).get("id")
+        ap_mac = record.get("recentDeviceMac")
 
-                # Filter to wireless networks only (AP data)
-                # and find the most recent one
-                # Network ID is nested in record["network"]["id"]
-                wireless_records = [
-                    r for r in records
-                    if r.get("network", {}).get("id") in wireless_ids
-                ]
+        if ap_mac and network_id:
+            ap_name = self._get_ap_name(network_id, ap_mac)
 
-                if wireless_records:
-                    # Sort by lastSeen to get most recent
-                    wireless_records.sort(
-                        key=lambda x: x.get("lastSeen", 0),
-                        reverse=True
-                    )
-                    record = wireless_records[0]
+        # Fallback to network name if AP lookup fails
+        if not ap_name:
+            ap_name = record.get("network", {}).get("name", "Unknown")
 
-                    # Get AP name - try looking up by recentDeviceMac first
-                    ap_name = None
-                    network_id = record.get("network", {}).get("id")
-                    ap_mac = record.get("recentDeviceMac")
+        # Get the actual client ID from the network-specific endpoint
+        client_id = None
+        if network_id:
+            try:
+                client_url = f"{self.base_url}/networks/{network_id}/clients/{formatted_mac}"
+                client_resp = requests.get(client_url, headers=self.headers, timeout=10)
+                if client_resp.status_code == 200:
+                    client_data = client_resp.json()
+                    client_id = client_data.get("id")
+            except Exception as e:
+                print(f"[Meraki] Client ID lookup error: {e}")
 
-                    if ap_mac and network_id:
-                        ap_name = self._get_ap_name(network_id, ap_mac)
-
-                    # Fallback to network name if AP lookup fails
-                    if not ap_name:
-                        ap_name = record.get("network", {}).get("name", "Unknown")
-
-                    # Get the actual client ID from the network-specific endpoint
-                    client_id = None
-                    if network_id:
-                        try:
-                            client_url = f"{self.base_url}/networks/{network_id}/clients/{formatted_mac}"
-                            client_resp = requests.get(client_url, headers=self.headers, timeout=10)
-                            if client_resp.status_code == 200:
-                                client_data = client_resp.json()
-                                client_id = client_data.get("id")
-                        except Exception as e:
-                            print(f"[Meraki] Client ID lookup error: {e}")
-
-                    return {
-                        "client_id": client_id,
-                        "ap_name": ap_name,
-                        "last_seen": record.get("lastSeen"),
-                        "ssid": record.get("ssid"),
-                        "ip_address": record.get("ip"),
-                        "vlan": record.get("vlan"),
-                        "network_id": network_id
-                    }
-            elif resp.status_code == 404:
-                print(f"[Meraki] MAC {formatted_mac} not found")
-            else:
-                print(f"[Meraki] API returned {resp.status_code}")
-
-            return None
-        except Exception as e:
-            print(f"[Meraki] API Error: {e}")
-            return None
+        return {
+            "client_id": client_id,
+            "ap_name": ap_name,
+            "last_seen": record.get("lastSeen"),
+            "ssid": record.get("ssid"),
+            "ip_address": record.get("ip"),
+            "vlan": record.get("vlan"),
+            "network_id": network_id
+        }
 
     def sync_record(self, db: Session, mac: str) -> dict:
         """
