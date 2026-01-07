@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import axios from 'axios'
 import {
   Search, Server, Monitor, Wifi, AlertTriangle, CheckCircle,
@@ -12,26 +12,36 @@ import { useIntegrations } from '../context/IntegrationsContext'
 // IIQ domain is loaded from environment variable (set in .env or at build time)
 const IIQ_DOMAIN = import.meta.env.VITE_IIQ_URL || "";
 
-// Helper to get vendor border class based on settings
-function getVendorBorderClass(vendor) {
-  const showColors = localStorage.getItem('atlas_vendor_colors') !== 'false'
-  if (!showColors) return ''
-
-  const colors = {
-    iiq: 'border-l-4 border-l-blue-500',
-    google: 'border-l-4 border-l-emerald-500',
-    meraki: 'border-l-4 border-l-purple-500'
-  }
-  return colors[vendor] || ''
-}
-
 export default function Device360() {
   const [serial, setSerial] = useState('')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState(null)
+  const [showVendorColors, setShowVendorColors] = useState(
+    () => localStorage.getItem('atlas_vendor_colors') !== 'false'
+  )
   const { integrations } = useIntegrations()
+
+  // Listen for settings changes
+  useEffect(() => {
+    const handleSettingsChange = (e) => {
+      setShowVendorColors(e.detail?.showVendorColors ?? true)
+    }
+    window.addEventListener('atlas-settings-changed', handleSettingsChange)
+    return () => window.removeEventListener('atlas-settings-changed', handleSettingsChange)
+  }, [])
+
+  // Helper to get vendor border class
+  const getVendorBorderClass = (vendor) => {
+    if (!showVendorColors) return ''
+    const colors = {
+      iiq: 'border-l-4 border-l-blue-500',
+      google: 'border-l-4 border-l-emerald-500',
+      meraki: 'border-l-4 border-l-purple-500'
+    }
+    return colors[vendor] || ''
+  }
 
   const handleSearch = async (e) => {
     e.preventDefault()
