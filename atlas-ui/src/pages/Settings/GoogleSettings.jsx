@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { Cloud, Save, TestTube, Loader2, CheckCircle, XCircle, AlertCircle, Upload } from 'lucide-react'
+import SyncPanel from '../../components/SyncPanel'
 
 export default function GoogleSettings() {
   const [settings, setSettings] = useState({
@@ -275,6 +276,9 @@ export default function GoogleSettings() {
           </div>
         )}
       </div>
+
+      {/* Sync Management */}
+      <SyncPanel service="google" />
     </div>
   )
 }
