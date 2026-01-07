@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.database import SessionLocal
 from app.services.iiq_sync import IIQConnector
 from app.config import get_iiq_config
-from app.models import SyncLog
+from app.models import SyncLog, IIQSyncConfig
 import logging
 
 # Setup logging
@@ -64,19 +64,39 @@ def main():
             product_id=iiq_cfg.get("product_id")
         )
 
-        # Run bulk sync for assets
-        result = connector.bulk_sync(db)
-        logger.info(f"Asset sync complete: {result}")
-        total_records += result.get("inserted", 0) + result.get("updated", 0)
+        # Config-driven sync
+        SYNC_FUNCTIONS = {
+            'assets': connector.bulk_sync,
+            'users': connector.bulk_sync_users,
+            'tickets': connector.bulk_sync_tickets,
+            'locations': connector.bulk_sync_locations,
+            'teams': connector.bulk_sync_teams,
+            'manufacturers': connector.bulk_sync_manufacturers,
+        }
 
-        # Run bulk sync for users
-        logger.info("Starting user synchronization...")
-        user_result = connector.bulk_sync_users(db)
-        logger.info(f"User sync complete: {user_result}")
-        total_records += user_result.get("success", 0)
-        total_failed += user_result.get("failed", 0)
+        enabled_sources = db.query(IIQSyncConfig).filter(IIQSyncConfig.enabled == True).all()
+        logger.info(f"Found {len(enabled_sources)} enabled sources to sync")
 
-        # Cache ticket stats
+        for source in enabled_sources:
+            sync_func = SYNC_FUNCTIONS.get(source.source_key)
+            if sync_func:
+                logger.info(f"Syncing {source.display_name}...")
+                try:
+                    result = sync_func(db)
+                    source.last_synced = datetime.utcnow()
+                    db.commit()
+                    logger.info(f"{source.display_name} complete: {result}")
+                    # Track records from result
+                    if isinstance(result, dict):
+                        total_records += result.get("inserted", 0) + result.get("updated", 0) + result.get("success", 0)
+                        total_failed += result.get("failed", 0)
+                except Exception as e:
+                    logger.error(f"Error syncing {source.display_name}: {e}")
+                    total_failed += 1
+            else:
+                logger.warning(f"No sync function found for {source.source_key}")
+
+        # Cache ticket stats (for dashboard, separate from data sync)
         logger.info("Caching ticket statistics...")
         ticket_stats = connector.cache_ticket_stats(db)
         logger.info(f"Ticket stats cached: {ticket_stats}")
