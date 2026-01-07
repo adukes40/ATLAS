@@ -5,11 +5,13 @@ import {
   LayoutDashboard, Chrome, Server, Wifi, ArrowRight,
   Monitor, Users, AlertTriangle, CheckCircle, Loader2
 } from 'lucide-react'
+import { useIntegrations } from '../../context/IntegrationsContext'
 
 export default function DashboardsIndex() {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const { integrations } = useIntegrations()
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -26,13 +28,25 @@ export default function DashboardsIndex() {
     fetchStats()
   }, [])
 
+  // Get vendor border class based on user preference
+  const getVendorBorderClass = (vendor) => {
+    const showColors = localStorage.getItem('atlas_vendor_colors') !== 'false'
+    if (!showColors) return ''
+    const colors = {
+      iiq: 'border-l-4 border-l-blue-500',
+      google: 'border-l-4 border-l-emerald-500',
+      meraki: 'border-l-4 border-l-purple-500'
+    }
+    return colors[vendor] || ''
+  }
+
   const dashboards = [
     {
       id: 'google',
       title: 'Google Admin',
       description: 'AUE status, OS versions, enrollment stats',
       icon: Chrome,
-      color: 'blue',
+      color: 'emerald',
       to: '/dashboards/google',
       ready: true,
       stat: stats?.google?.total_devices,
@@ -43,7 +57,7 @@ export default function DashboardsIndex() {
       title: 'Incident IQ',
       description: 'Asset status, assignments, user fees',
       icon: Server,
-      color: 'emerald',
+      color: 'blue',
       to: '/dashboards/iiq',
       ready: true,
       stat: stats?.iiq?.total_assets,
@@ -110,52 +124,60 @@ export default function DashboardsIndex() {
         </div>
       ) : stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {/* Total Devices */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg">
-                <Monitor className="h-4 w-4 text-slate-500" />
+          {/* IIQ Assets */}
+          {integrations.iiq && (
+            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                  <Monitor className="h-4 w-4 text-blue-500" />
+                </div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">IIQ Assets</span>
               </div>
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">IIQ Assets</span>
+              <p className="text-3xl font-bold text-slate-800 dark:text-slate-100">{stats.iiq?.total_assets}</p>
             </div>
-            <p className="text-3xl font-bold text-slate-800 dark:text-slate-100">{stats.iiq.total_assets}</p>
-          </div>
+          )}
 
-          {/* Assigned */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
-                <Users className="h-4 w-4 text-emerald-500" />
+          {/* Assigned (IIQ) */}
+          {integrations.iiq && (
+            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                  <Users className="h-4 w-4 text-blue-500" />
+                </div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Assigned</span>
               </div>
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Assigned</span>
+              <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{stats.iiq?.assigned}</p>
+              <p className="text-xs text-slate-400 mt-1">{stats.iiq?.unassigned} unassigned</p>
             </div>
-            <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{stats.iiq.assigned}</p>
-            <p className="text-xs text-slate-400 mt-1">{stats.iiq.unassigned} unassigned</p>
-          </div>
+          )}
 
           {/* Google Active */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                <CheckCircle className="h-4 w-4 text-blue-500" />
+          {integrations.google && (
+            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('google')}`}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
+                  <CheckCircle className="h-4 w-4 text-emerald-500" />
+                </div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Google Active</span>
               </div>
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Google Active</span>
+              <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{stats.google?.active}</p>
+              <p className="text-xs text-slate-400 mt-1">of {stats.google?.total_devices} in Google</p>
             </div>
-            <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{stats.google.active}</p>
-            <p className="text-xs text-slate-400 mt-1">of {stats.google.total_devices} in Google</p>
-          </div>
+          )}
 
-          {/* AUE Expired */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
-                <AlertTriangle className="h-4 w-4 text-red-500" />
+          {/* AUE Expired (Google) */}
+          {integrations.google && (
+            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('google')}`}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                  <AlertTriangle className="h-4 w-4 text-red-500" />
+                </div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Expired AUE</span>
               </div>
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Expired AUE</span>
+              <p className="text-3xl font-bold text-red-600 dark:text-red-400">{stats.google?.aue_expired}</p>
+              <p className="text-xs text-slate-400 mt-1">past end of life</p>
             </div>
-            <p className="text-3xl font-bold text-red-600 dark:text-red-400">{stats.google.aue_expired}</p>
-            <p className="text-xs text-slate-400 mt-1">past end of life</p>
-          </div>
+          )}
         </div>
       )}
 
@@ -163,7 +185,7 @@ export default function DashboardsIndex() {
       <div>
         <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Data Sources</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {dashboards.map((dashboard) => {
+          {dashboards.filter(d => integrations[d.id]).map((dashboard) => {
             const colors = colorClasses[dashboard.color]
             const Icon = dashboard.icon
 
@@ -206,18 +228,20 @@ export default function DashboardsIndex() {
               </>
             )
 
+            const vendorBorder = getVendorBorderClass(dashboard.id)
+
             return dashboard.ready ? (
               <Link
                 key={dashboard.id}
                 to={dashboard.to}
-                className={`relative p-6 rounded-2xl border-2 transition-all duration-200 ${colors.bg} ${colors.border} ${colors.hover} cursor-pointer block`}
+                className={`relative p-6 rounded-2xl border-2 transition-all duration-200 ${colors.bg} ${colors.border} ${colors.hover} ${vendorBorder} cursor-pointer block`}
               >
                 {CardContent}
               </Link>
             ) : (
               <div
                 key={dashboard.id}
-                className={`relative p-6 rounded-2xl border-2 transition-all duration-200 ${colors.bg} ${colors.border}`}
+                className={`relative p-6 rounded-2xl border-2 transition-all duration-200 ${colors.bg} ${colors.border} ${vendorBorder}`}
               >
                 {CardContent}
               </div>

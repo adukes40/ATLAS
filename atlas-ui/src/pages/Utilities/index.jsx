@@ -8,6 +8,7 @@ import SyncCard from './SyncCard'
 import TablePreviewModal from './TablePreviewModal'
 import ErrorLogModal from './ErrorLogModal'
 import ScheduleEditorModal from './ScheduleEditorModal'
+import { useIntegrations } from '../../context/IntegrationsContext'
 
 export default function UtilitiesIndex() {
   // State
@@ -21,20 +22,24 @@ export default function UtilitiesIndex() {
   const [editingSchedule, setEditingSchedule] = useState(null)
   const [error, setError] = useState(null)
 
+  // Integration context
+  const { integrations } = useIntegrations()
+  const enabledSources = ['iiq', 'google', 'meraki'].filter(s => integrations[s])
+
   // Polling ref
   const pollingRef = useRef(null)
 
-  // Check if any sync is running
+  // Check if any sync is running (only enabled sources)
   const getRunningCount = () => {
     if (!syncStatus) return 0
-    return ['iiq', 'google', 'meraki'].filter(
+    return enabledSources.filter(
       s => syncStatus[s]?.status === 'running'
     ).length
   }
 
   const getRunningSources = () => {
     if (!syncStatus) return []
-    return ['iiq', 'google', 'meraki'].filter(
+    return enabledSources.filter(
       s => syncStatus[s]?.status === 'running'
     )
   }
@@ -67,8 +72,8 @@ export default function UtilitiesIndex() {
       setSyncHistory(historyRes.data)
       setTables(tablesRes.data)
 
-      // Check if any sync is running
-      const anyRunning = ['iiq', 'google', 'meraki'].some(
+      // Check if any sync is running (only enabled sources)
+      const anyRunning = enabledSources.some(
         s => statusRes.data[s]?.status === 'running'
       )
 
@@ -129,13 +134,17 @@ export default function UtilitiesIndex() {
 
   // Handle Sync All (parallel) - with immediate UI feedback
   const handleSyncAll = async () => {
-    // Optimistic UI update - immediately show all as running
+    // Optimistic UI update - immediately show enabled sources as running
     const now = new Date().toISOString()
-    setSyncStatus(prev => ({
-      iiq: prev?.iiq?.status === 'running' ? prev.iiq : { ...prev?.iiq, status: 'running', started_at: now },
-      google: prev?.google?.status === 'running' ? prev.google : { ...prev?.google, status: 'running', started_at: now },
-      meraki: prev?.meraki?.status === 'running' ? prev.meraki : { ...prev?.meraki, status: 'running', started_at: now }
-    }))
+    setSyncStatus(prev => {
+      const updated = { ...prev }
+      enabledSources.forEach(source => {
+        if (prev?.[source]?.status !== 'running') {
+          updated[source] = { ...prev?.[source], status: 'running', started_at: now }
+        }
+      })
+      return updated
+    })
     startPolling()
 
     try {
@@ -295,9 +304,9 @@ export default function UtilitiesIndex() {
         </div>
         <button
           onClick={handleSyncAll}
-          disabled={runningCount === 3}
+          disabled={runningCount === enabledSources.length}
           className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${
-            runningCount === 3
+            runningCount === enabledSources.length
               ? 'bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed'
               : 'bg-blue-600 text-white hover:bg-blue-700'
           }`}
@@ -319,34 +328,40 @@ export default function UtilitiesIndex() {
         <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-4">
           Sync Control
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <SyncCard
-            source="iiq"
-            status={syncStatus?.iiq}
-            schedule={schedules?.iiq}
-            onSync={handleSync}
-            onCancel={handleCancel}
-            onToggleEnabled={handleToggleEnabled}
-            onEditSchedule={setEditingSchedule}
-          />
-          <SyncCard
-            source="google"
-            status={syncStatus?.google}
-            schedule={schedules?.google}
-            onSync={handleSync}
-            onCancel={handleCancel}
-            onToggleEnabled={handleToggleEnabled}
-            onEditSchedule={setEditingSchedule}
-          />
-          <SyncCard
-            source="meraki"
-            status={syncStatus?.meraki}
-            schedule={schedules?.meraki}
-            onSync={handleSync}
-            onCancel={handleCancel}
-            onToggleEnabled={handleToggleEnabled}
-            onEditSchedule={setEditingSchedule}
-          />
+        <div className={`grid grid-cols-1 gap-4 ${enabledSources.length === 3 ? 'md:grid-cols-3' : enabledSources.length === 2 ? 'md:grid-cols-2' : ''}`}>
+          {integrations.iiq && (
+            <SyncCard
+              source="iiq"
+              status={syncStatus?.iiq}
+              schedule={schedules?.iiq}
+              onSync={handleSync}
+              onCancel={handleCancel}
+              onToggleEnabled={handleToggleEnabled}
+              onEditSchedule={setEditingSchedule}
+            />
+          )}
+          {integrations.google && (
+            <SyncCard
+              source="google"
+              status={syncStatus?.google}
+              schedule={schedules?.google}
+              onSync={handleSync}
+              onCancel={handleCancel}
+              onToggleEnabled={handleToggleEnabled}
+              onEditSchedule={setEditingSchedule}
+            />
+          )}
+          {integrations.meraki && (
+            <SyncCard
+              source="meraki"
+              status={syncStatus?.meraki}
+              schedule={schedules?.meraki}
+              onSync={handleSync}
+              onCancel={handleCancel}
+              onToggleEnabled={handleToggleEnabled}
+              onEditSchedule={setEditingSchedule}
+            />
+          )}
         </div>
       </section>
 
