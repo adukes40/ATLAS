@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   RefreshCw, CheckCircle, AlertCircle, Clock, Loader2,
   X, Calendar, ToggleLeft, ToggleRight, Settings
@@ -33,6 +33,28 @@ export default function SyncCard({
   }
 
   const config = sourceConfig[source] || { name: source, color: 'slate', description: '' }
+
+  // Track elapsed time for running syncs
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+  useEffect(() => {
+    if (status?.status !== 'running' || !status?.started_at) {
+      setElapsedSeconds(0)
+      return
+    }
+
+    // Calculate initial elapsed
+    let startStr = status.started_at
+    if (!startStr.endsWith('Z') && !startStr.includes('+') && !startStr.includes('-', 10)) {
+      startStr = startStr + 'Z'
+    }
+    const startTime = new Date(startStr).getTime()
+    const updateElapsed = () => setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000))
+
+    updateElapsed()
+    const interval = setInterval(updateElapsed, 1000)
+    return () => clearInterval(interval)
+  }, [status?.status, status?.started_at])
 
   const getStatusIcon = () => {
     if (!status) return <Clock className="h-5 w-5 text-slate-400" />
@@ -196,12 +218,42 @@ export default function SyncCard({
         }`}>
           {getStatusText()}
         </span>
-        {getTimeAgo() && (
+        {getTimeAgo() && !isRunning && (
           <span className="text-xs text-slate-400 dark:text-slate-500">
             {getTimeAgo()}
           </span>
         )}
       </div>
+
+      {/* Running Progress Bar */}
+      {isRunning && (
+        <div className="mb-3">
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+            <span>{formatDuration(elapsedSeconds)} elapsed</span>
+            {schedule?.avg_duration_seconds ? (
+              <span>
+                ETA: ~{formatDuration(Math.max(0, schedule.avg_duration_seconds - elapsedSeconds))}
+              </span>
+            ) : (
+              <span className="italic">estimating...</span>
+            )}
+          </div>
+          <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-1000 ${
+                schedule?.avg_duration_seconds && elapsedSeconds > schedule.avg_duration_seconds
+                  ? 'bg-amber-500' : 'bg-blue-500'
+              }`}
+              style={{
+                width: schedule?.avg_duration_seconds
+                  ? `${Math.min(100, (elapsedSeconds / schedule.avg_duration_seconds) * 100)}%`
+                  : '100%',
+                animation: schedule?.avg_duration_seconds ? 'none' : 'pulse 2s infinite'
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-2 text-xs mb-3">
