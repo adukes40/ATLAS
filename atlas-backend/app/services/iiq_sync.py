@@ -704,3 +704,278 @@ class IIQConnector:
         logger.info("=" * 50)
 
         return {"success": success_count, "errors": error_count, "students": student_count}
+
+    def bulk_sync_tickets(self, db: Session):
+        """
+        Syncs ALL tickets from IIQ to local database.
+        """
+        from sqlalchemy.dialects.postgresql import insert
+        from app.models import IIQTicket
+
+        logger.info("=" * 50)
+        logger.info("STARTING IIQ BULK TICKET SYNC")
+        logger.info("=" * 50)
+
+        success_count = 0
+        error_count = 0
+        batch = []
+        batch_size = 100
+        page_index = 0
+        total_fetched = 0
+        total_rows = None
+
+        while True:
+            try:
+                resp = requests.post(
+                    f"{self.base_url}/api/v1.0/tickets",
+                    headers=self.headers,
+                    json={"OnlyShowDeleted": False, "Paging": {"PageIndex": page_index, "PageSize": 100}},
+                    timeout=30
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+                items = data.get("Items", [])
+                if not items:
+                    break
+
+                if total_rows is None:
+                    total_rows = data.get("Paging", {}).get("TotalRows", 0)
+                    logger.info(f"Total tickets to fetch: {total_rows}")
+
+                total_fetched += len(items)
+
+                for raw_data in items:
+                    try:
+                        ticket_id = raw_data.get("TicketId")
+                        if not ticket_id:
+                            continue
+
+                        owner = raw_data.get("Owner") or {}
+                        assignee = raw_data.get("Assignee") or {}
+                        team = raw_data.get("Team") or {}
+                        asset = raw_data.get("Asset") or {}
+                        location = raw_data.get("Location") or {}
+                        status = raw_data.get("Status") or {}
+                        priority = raw_data.get("Priority") or {}
+                        category = raw_data.get("Category") or {}
+
+                        ticket_data = {
+                            "ticket_id": ticket_id,
+                            "ticket_number": raw_data.get("TicketNumber"),
+                            "subject": raw_data.get("Subject"),
+                            "description": raw_data.get("Description"),
+                            "status": status.get("Name"),
+                            "priority": priority.get("Name"),
+                            "category": category.get("Name"),
+                            "created_date": raw_data.get("CreatedDate"),
+                            "modified_date": raw_data.get("ModifiedDate"),
+                            "closed_date": raw_data.get("ClosedDate"),
+                            "owner_id": owner.get("UserId"),
+                            "owner_name": owner.get("Name") or owner.get("FullName"),
+                            "owner_email": owner.get("Email"),
+                            "assignee_id": assignee.get("UserId"),
+                            "assignee_name": assignee.get("Name") or assignee.get("FullName"),
+                            "team_id": team.get("TeamId"),
+                            "team_name": team.get("Name"),
+                            "asset_id": asset.get("AssetId"),
+                            "asset_tag": asset.get("AssetTag"),
+                            "location_id": location.get("LocationId"),
+                            "location_name": location.get("Name"),
+                            "last_updated": datetime.utcnow(),
+                            "meta_data": raw_data
+                        }
+
+                        batch.append(ticket_data)
+                        success_count += 1
+
+                        if len(batch) >= batch_size:
+                            stmt = insert(IIQTicket).values(batch)
+                            stmt = stmt.on_conflict_do_update(
+                                index_elements=['ticket_id'],
+                                set_={k: stmt.excluded[k] for k in ticket_data.keys() if k != 'ticket_id'}
+                            )
+                            db.execute(stmt)
+                            db.commit()
+                            logger.info(f"Committed {success_count} ticket records...")
+                            batch = []
+
+                    except Exception as e:
+                        error_count += 1
+                        logger.error(f"Error processing ticket: {e}")
+
+                if total_fetched >= total_rows:
+                    break
+
+                page_index += 1
+
+            except Exception as e:
+                logger.error(f"Error fetching ticket page {page_index}: {e}")
+                break
+
+        # Final batch
+        if batch:
+            try:
+                stmt = insert(IIQTicket).values(batch)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['ticket_id'],
+                    set_={k: stmt.excluded[k] for k in batch[0].keys() if k != 'ticket_id'}
+                )
+                db.execute(stmt)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Final ticket batch commit failed: {e}")
+
+        logger.info("=" * 50)
+        logger.info(f"IIQ BULK TICKET SYNC COMPLETE")
+        logger.info(f"Success: {success_count} | Errors: {error_count}")
+        logger.info("=" * 50)
+
+        return {"success": success_count, "errors": error_count}
+
+    def bulk_sync_locations(self, db: Session):
+        """Syncs all locations from IIQ."""
+        from sqlalchemy.dialects.postgresql import insert
+        from app.models import IIQLocation
+
+        logger.info("Starting IIQ locations sync...")
+
+        try:
+            resp = requests.get(
+                f"{self.base_url}/api/v1.0/locations",
+                headers=self.headers,
+                params={"$p": 0, "$s": 100},
+                timeout=30
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get("Items", [])
+
+            for raw_data in items:
+                location_id = raw_data.get("LocationId")
+                if not location_id:
+                    continue
+
+                location_data = {
+                    "location_id": location_id,
+                    "name": raw_data.get("Name"),
+                    "abbreviation": raw_data.get("Abbreviation"),
+                    "address": raw_data.get("Address"),
+                    "city": raw_data.get("City"),
+                    "state": raw_data.get("State"),
+                    "zip": raw_data.get("Zip"),
+                    "location_type": raw_data.get("LocationType", {}).get("Name") if isinstance(raw_data.get("LocationType"), dict) else raw_data.get("LocationType"),
+                    "parent_id": raw_data.get("ParentLocationId"),
+                    "is_active": raw_data.get("IsActive", True),
+                    "last_updated": datetime.utcnow(),
+                    "meta_data": raw_data
+                }
+
+                stmt = insert(IIQLocation).values(location_data)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['location_id'],
+                    set_={k: stmt.excluded[k] for k in location_data.keys() if k != 'location_id'}
+                )
+                db.execute(stmt)
+
+            db.commit()
+            logger.info(f"Synced {len(items)} locations")
+            return {"success": len(items), "errors": 0}
+
+        except Exception as e:
+            logger.error(f"Location sync failed: {e}")
+            return {"success": 0, "errors": 1, "message": str(e)}
+
+    def bulk_sync_teams(self, db: Session):
+        """Syncs all teams from IIQ."""
+        from sqlalchemy.dialects.postgresql import insert
+        from app.models import IIQTeam
+
+        logger.info("Starting IIQ teams sync...")
+
+        try:
+            resp = requests.get(
+                f"{self.base_url}/api/v1.0/teams",
+                headers=self.headers,
+                params={"$p": 0, "$s": 100},
+                timeout=30
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get("Items", [])
+
+            for raw_data in items:
+                team_id = raw_data.get("TeamId")
+                if not team_id:
+                    continue
+
+                team_data = {
+                    "team_id": team_id,
+                    "name": raw_data.get("Name"),
+                    "description": raw_data.get("Description"),
+                    "member_count": raw_data.get("MemberCount"),
+                    "is_active": raw_data.get("IsActive", True),
+                    "last_updated": datetime.utcnow(),
+                    "meta_data": raw_data
+                }
+
+                stmt = insert(IIQTeam).values(team_data)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['team_id'],
+                    set_={k: stmt.excluded[k] for k in team_data.keys() if k != 'team_id'}
+                )
+                db.execute(stmt)
+
+            db.commit()
+            logger.info(f"Synced {len(items)} teams")
+            return {"success": len(items), "errors": 0}
+
+        except Exception as e:
+            logger.error(f"Team sync failed: {e}")
+            return {"success": 0, "errors": 1, "message": str(e)}
+
+    def bulk_sync_manufacturers(self, db: Session):
+        """Syncs all manufacturers from IIQ."""
+        from sqlalchemy.dialects.postgresql import insert
+        from app.models import IIQManufacturer
+
+        logger.info("Starting IIQ manufacturers sync...")
+
+        try:
+            resp = requests.get(
+                f"{self.base_url}/api/v1.0/manufacturers",
+                headers=self.headers,
+                params={"$p": 0, "$s": 100},
+                timeout=30
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get("Items", [])
+
+            for raw_data in items:
+                mfr_id = raw_data.get("ManufacturerId")
+                if not mfr_id:
+                    continue
+
+                mfr_data = {
+                    "manufacturer_id": mfr_id,
+                    "name": raw_data.get("Name"),
+                    "last_updated": datetime.utcnow(),
+                    "meta_data": raw_data
+                }
+
+                stmt = insert(IIQManufacturer).values(mfr_data)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['manufacturer_id'],
+                    set_={k: stmt.excluded[k] for k in mfr_data.keys() if k != 'manufacturer_id'}
+                )
+                db.execute(stmt)
+
+            db.commit()
+            logger.info(f"Synced {len(items)} manufacturers")
+            return {"success": len(items), "errors": 0}
+
+        except Exception as e:
+            logger.error(f"Manufacturer sync failed: {e}")
+            return {"success": 0, "errors": 1, "message": str(e)}
