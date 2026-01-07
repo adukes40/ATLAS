@@ -127,9 +127,12 @@ RUNNING_PROCESSES: dict = {}  # {source: subprocess.Popen}
 
 def run_sync_script(source: str, trigger: str = "manual"):
     """
-    Background task to run sync script.
+    Start sync script as a detached subprocess (fire-and-forget).
     The script itself handles logging to sync_logs table.
-    Uses Popen to track PID for cancellation support.
+    We store the Popen object for PID tracking (cancellation support).
+
+    NOTE: We do NOT wait for completion - this allows parallel execution
+    when multiple syncs are triggered via /sync/all.
     """
     script_path = SCRIPT_MAP.get(source)
     if not script_path:
@@ -145,30 +148,57 @@ def run_sync_script(source: str, trigger: str = "manual"):
             "LC_ALL": "en_US.UTF-8"
         }
 
-        # Start the sync script as a subprocess
+        # Start the sync script as a subprocess (fire-and-forget)
         process = subprocess.Popen(
             ["/opt/atlas/atlas-backend/venv/bin/python3", script_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd="/opt/atlas/atlas-backend",
-            env=env
+            env=env,
+            start_new_session=True  # Detach from parent process group
         )
 
-        # Track the running process
+        # Track the running process for cancellation support
         RUNNING_PROCESSES[source] = process
-
-        # Wait for completion (with timeout)
-        try:
-            process.wait(timeout=600)  # 10 minute timeout
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
 
     except Exception:
         pass
-    finally:
-        # Clean up tracking
-        RUNNING_PROCESSES.pop(source, None)
+
+
+@router.post("/sync/all")
+def trigger_all_syncs(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Triggers all syncs (IIQ, Google, Meraki) in parallel.
+    Skips any source that is already running.
+    NOTE: This route MUST be defined before /sync/{source} so FastAPI matches it first.
+    """
+    sources = ["iiq", "google", "meraki"]
+    started = []
+    skipped = []
+
+    for source in sources:
+        # Check if already running
+        running = db.query(SyncLog).filter(
+            SyncLog.source == source,
+            SyncLog.status == "running"
+        ).first()
+
+        if running:
+            skipped.append({
+                "source": source,
+                "reason": f"Already running (started {running.started_at.isoformat()})"
+            })
+        else:
+            # Start sync in background
+            background_tasks.add_task(run_sync_script, source)
+            started.append(source)
+
+    return {
+        "message": f"Started {len(started)} sync(s)",
+        "started": started,
+        "skipped": skipped,
+        "started_at": datetime.utcnow().isoformat()
+    }
 
 
 @router.post("/sync/{source}")
@@ -197,41 +227,6 @@ def trigger_sync(source: str, background_tasks: BackgroundTasks, db: Session = D
 
     return {
         "message": f"{source.upper()} sync started",
-        "started_at": datetime.utcnow().isoformat()
-    }
-
-
-@router.post("/sync/all")
-def trigger_all_syncs(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """
-    Triggers all syncs (IIQ, Google, Meraki) in parallel.
-    Skips any source that is already running.
-    """
-    sources = ["iiq", "google", "meraki"]
-    started = []
-    skipped = []
-
-    for source in sources:
-        # Check if already running
-        running = db.query(SyncLog).filter(
-            SyncLog.source == source,
-            SyncLog.status == "running"
-        ).first()
-
-        if running:
-            skipped.append({
-                "source": source,
-                "reason": f"Already running (started {running.started_at.isoformat()})"
-            })
-        else:
-            # Start sync in background
-            background_tasks.add_task(run_sync_script, source)
-            started.append(source)
-
-    return {
-        "message": f"Started {len(started)} sync(s)",
-        "started": started,
-        "skipped": skipped,
         "started_at": datetime.utcnow().isoformat()
     }
 

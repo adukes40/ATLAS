@@ -102,23 +102,35 @@ export default function SyncCard({
     return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
   }
 
+  // Get display settings from localStorage
+  const getDisplaySettings = () => ({
+    timezone: localStorage.getItem('atlas_timezone') || 'America/New_York',
+    hour12: localStorage.getItem('atlas_time_format') !== '24'
+  })
+
   const formatNextRun = (isoString) => {
     if (!isoString) return 'Not scheduled'
+    const { timezone, hour12 } = getDisplaySettings()
     const date = new Date(isoString + 'Z')
     return date.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true,
-      timeZone: 'America/New_York'
+      hour12,
+      timeZone: timezone
     })
   }
 
   const formatScheduleHours = (hours) => {
     if (!hours || hours.length === 0) return 'No hours set'
+    const { hour12 } = getDisplaySettings()
     return hours.map(h => {
-      const period = h >= 12 ? 'PM' : 'AM'
-      const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-      return `${hour12}${period}`
+      if (hour12) {
+        const period = h >= 12 ? 'PM' : 'AM'
+        const hour12Val = h === 0 ? 12 : h > 12 ? h - 12 : h
+        return `${hour12Val}${period}`
+      } else {
+        return `${h.toString().padStart(2, '0')}:00`
+      }
     }).join(', ')
   }
 
@@ -134,7 +146,7 @@ export default function SyncCard({
   const canSync = !isRunning && !disabled
 
   return (
-    <div className={`rounded-xl border-2 p-5 ${colorClasses[config.color]} ${!isEnabled ? 'opacity-60' : ''}`}>
+    <div className={`rounded-xl border-2 p-5 ${colorClasses[config.color]}`}>
       {/* Header with Enable/Disable Toggle */}
       <div className="flex items-start justify-between mb-3">
         <div>
@@ -161,14 +173,17 @@ export default function SyncCard({
         </div>
       </div>
 
-      {/* Disabled Badge */}
-      {!isEnabled && (
-        <div className="mb-3">
-          <span className="text-xs px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 rounded-full">
-            Scheduling Disabled
-          </span>
-        </div>
-      )}
+      {/* Schedule Display - right below toggle */}
+      <div className="text-xs text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-1">
+        <Calendar className="h-3 w-3" />
+        {!isEnabled ? (
+          <span className="text-slate-400 dark:text-slate-500 italic">Scheduling disabled (manual only)</span>
+        ) : schedule?.hours?.length > 0 ? (
+          <span>{formatScheduleHours(schedule.hours)}</span>
+        ) : (
+          <span className="text-amber-500">No hours scheduled</span>
+        )}
+      </div>
 
       {/* Status */}
       <div className="flex items-center gap-2 mb-2">
@@ -194,10 +209,13 @@ export default function SyncCard({
         <div className="text-slate-500 dark:text-slate-400">
           <span className="block text-slate-400 dark:text-slate-500">Last Run</span>
           {status?.completed_at ? (
-            new Date(status.completed_at + 'Z').toLocaleString('en-US', {
-              month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-              hour12: true, timeZone: 'America/New_York'
-            })
+            (() => {
+              const { timezone, hour12 } = getDisplaySettings()
+              return new Date(status.completed_at + 'Z').toLocaleString('en-US', {
+                month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+                hour12, timeZone: timezone
+              })
+            })()
           ) : '-'}
         </div>
 
@@ -223,13 +241,6 @@ export default function SyncCard({
         </div>
       </div>
 
-      {/* Schedule Display */}
-      {schedule?.hours?.length > 0 && (
-        <div className="text-xs text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-1">
-          <Calendar className="h-3 w-3" />
-          <span>{formatScheduleHours(schedule.hours)}</span>
-        </div>
-      )}
 
       {/* Action Buttons */}
       <div className="flex gap-2">

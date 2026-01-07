@@ -1,13 +1,15 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Settings, Database, Cloud, Wifi, Users, Key } from 'lucide-react'
+import { Settings, Database, Cloud, Wifi, Users, Key, Monitor } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import IIQSettings from './IIQSettings'
 import GoogleSettings from './GoogleSettings'
 import MerakiSettings from './MerakiSettings'
 import OAuthSettings from './OAuthSettings'
 import UsersSettings from './UsersSettings'
+import DisplaySettings from './DisplaySettings'
 
 const settingsNav = [
+  { to: '/settings/display', icon: Monitor, label: 'Display' },
   { to: '/settings/iiq', icon: Database, label: 'Incident IQ' },
   { to: '/settings/google', icon: Cloud, label: 'Google Admin' },
   { to: '/settings/meraki', icon: Wifi, label: 'Meraki' },
@@ -70,7 +72,8 @@ export default function SettingsIndex() {
       {/* Settings Content */}
       <div className="flex-1 min-w-0">
         <Routes>
-          <Route index element={<Navigate to="iiq" replace />} />
+          <Route index element={<Navigate to="display" replace />} />
+          <Route path="display" element={<DisplaySettings />} />
           <Route path="iiq" element={<IIQSettings />} />
           <Route path="google" element={<GoogleSettings />} />
           <Route path="meraki" element={<MerakiSettings />} />

@@ -105,34 +105,52 @@ export default function UtilitiesIndex() {
     return () => stopPolling()
   }, [])
 
-  // Handle single sync trigger
+  // Handle single sync trigger - with immediate UI feedback
   const handleSync = async (source) => {
+    // Optimistic UI update - immediately show as running
+    setSyncStatus(prev => ({
+      ...prev,
+      [source]: { ...prev?.[source], status: 'running', started_at: new Date().toISOString() }
+    }))
+    startPolling()
+
     try {
       await axios.post(`/api/utilities/sync/${source}`)
-      startPolling()
+      // Fetch immediately to update history log
       await fetchData()
     } catch (err) {
       console.error(`Failed to trigger ${source} sync:`, err)
       const errorMsg = err.response?.data?.detail || `Failed to start ${source} sync`
+      // Revert optimistic update on error
+      await fetchData()
       alert(errorMsg)
     }
   }
 
-  // Handle Sync All (parallel)
+  // Handle Sync All (parallel) - with immediate UI feedback
   const handleSyncAll = async () => {
+    // Optimistic UI update - immediately show all as running
+    const now = new Date().toISOString()
+    setSyncStatus(prev => ({
+      iiq: prev?.iiq?.status === 'running' ? prev.iiq : { ...prev?.iiq, status: 'running', started_at: now },
+      google: prev?.google?.status === 'running' ? prev.google : { ...prev?.google, status: 'running', started_at: now },
+      meraki: prev?.meraki?.status === 'running' ? prev.meraki : { ...prev?.meraki, status: 'running', started_at: now }
+    }))
+    startPolling()
+
     try {
       const res = await axios.post('/api/utilities/sync/all')
-      if (res.data.started.length > 0) {
-        startPolling()
-        await fetchData()
-      }
       if (res.data.skipped.length > 0) {
         const skippedNames = res.data.skipped.map(s => s.source.toUpperCase()).join(', ')
         console.log(`Skipped already running: ${skippedNames}`)
       }
+      // Fetch immediately to update history log
+      await fetchData()
     } catch (err) {
       console.error('Failed to trigger sync all:', err)
       const errorMsg = err.response?.data?.detail || 'Failed to start syncs'
+      // Revert optimistic update on error
+      await fetchData()
       alert(errorMsg)
     }
   }
@@ -179,9 +197,16 @@ export default function UtilitiesIndex() {
     return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
   }
 
-  // Format timestamp - converts UTC to local timezone (EST)
+  // Get display settings from localStorage
+  const getDisplaySettings = () => ({
+    timezone: localStorage.getItem('atlas_timezone') || 'America/New_York',
+    hour12: localStorage.getItem('atlas_time_format') !== '24'
+  })
+
+  // Format timestamp - converts UTC to user's selected timezone
   const formatTimestamp = (iso) => {
     if (!iso) return '-'
+    const { timezone, hour12 } = getDisplaySettings()
     let dateStr = iso
     if (!iso.endsWith('Z') && !iso.includes('+') && !iso.includes('-', 10)) {
       dateStr = iso + 'Z'
@@ -196,8 +221,8 @@ export default function UtilitiesIndex() {
     const time = date.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true,
-      timeZone: 'America/New_York'
+      hour12,
+      timeZone: timezone
     })
 
     if (isToday) return `Today ${time}`
@@ -205,7 +230,7 @@ export default function UtilitiesIndex() {
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
-      timeZone: 'America/New_York'
+      timeZone: timezone
     }) + ` ${time}`
   }
 

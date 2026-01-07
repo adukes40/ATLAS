@@ -33,11 +33,9 @@ export default function ScheduleEditorModal({ source, schedule, onSave, onClose 
     }
   }
 
+  // Format hour in 24-hour UTC format for clarity (scheduler runs in UTC)
   const formatHour = (hour) => {
-    if (hour === 0) return '12 AM'
-    if (hour === 12) return '12 PM'
-    if (hour < 12) return `${hour} AM`
-    return `${hour - 12} PM`
+    return `${hour.toString().padStart(2, '0')}:00`
   }
 
   // Generate 24 hours in a 6x4 grid
@@ -65,7 +63,7 @@ export default function ScheduleEditorModal({ source, schedule, onSave, onClose 
         {/* Content */}
         <div className="p-4">
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-            Click hours to toggle when syncs should run. Times shown in UTC.
+            Select hours when syncs should run. Hours are in UTC (server time).
           </p>
 
           {/* Hour Grid */}
