@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import {
-  Database, RefreshCw, Eye, Check, X, Loader2,
+  Database, RefreshCw, Eye, Play, Loader2,
   AlertCircle, Clock, ToggleLeft, ToggleRight
 } from 'lucide-react'
 import IIQPreviewModal from './IIQPreviewModal'
@@ -11,8 +11,10 @@ export default function IIQSourcesCard() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [toggling, setToggling] = useState(null)
+  const [syncing, setSyncing] = useState(null)
   const [previewSource, setPreviewSource] = useState(null)
   const [error, setError] = useState(null)
+  const [success, setSuccess] = useState(null)
 
   const fetchSources = async () => {
     try {
@@ -51,6 +53,22 @@ export default function IIQSourcesCard() {
       setError(`Failed to toggle ${sourceKey}`)
     } finally {
       setToggling(null)
+    }
+  }
+
+  const handleSync = async (sourceKey, displayName) => {
+    setSyncing(sourceKey)
+    setError(null)
+    setSuccess(null)
+    try {
+      const res = await axios.post(`/api/settings/iiq-sources/${sourceKey}/sync`)
+      const result = res.data.result
+      setSuccess(`${displayName}: Synced ${result.success?.toLocaleString() || 0} records`)
+      await fetchSources()
+    } catch (err) {
+      setError(`Failed to sync ${displayName}: ${err.response?.data?.detail || err.message}`)
+    } finally {
+      setSyncing(null)
     }
   }
 
@@ -107,6 +125,13 @@ export default function IIQSourcesCard() {
           </div>
         )}
 
+        {success && (
+          <div className="mb-4 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm">
+            <Clock className="h-4 w-4 flex-shrink-0" />
+            {success}
+          </div>
+        )}
+
         {/* Sources List */}
         <div className="space-y-3">
           {sources.map((source) => (
@@ -157,10 +182,22 @@ export default function IIQSourcesCard() {
                     <Eye className="h-4 w-4" />
                   </button>
                   <button
+                    onClick={() => handleSync(source.key, source.display_name)}
+                    disabled={syncing !== null}
+                    className="p-2 text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors disabled:opacity-50"
+                    title="Sync now"
+                  >
+                    {syncing === source.key ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
+                  </button>
+                  <button
                     onClick={() => handleToggle(source.key)}
-                    disabled={toggling === source.key}
+                    disabled={toggling === source.key || syncing !== null}
                     className="p-1 transition-colors disabled:opacity-50"
-                    title={source.enabled ? 'Disable sync' : 'Enable sync'}
+                    title={source.enabled ? 'Disable nightly sync' : 'Enable nightly sync'}
                   >
                     {toggling === source.key ? (
                       <Loader2 className="h-6 w-6 text-slate-400 animate-spin" />

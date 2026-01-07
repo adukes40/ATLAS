@@ -718,18 +718,22 @@ class IIQConnector:
 
         success_count = 0
         error_count = 0
-        batch = []
-        batch_size = 100
+        batch = {}  # Use dict to dedupe by ticket_id (API returns duplicates)
+        batch_size = 100  # Commit every 100 records
         page_index = 0
         total_fetched = 0
         total_rows = None
+        page_size = 100
+        # With 56K tickets at 100/page = ~562 API calls, should take ~5-10 minutes
 
         while True:
             try:
+                # NOTE: IIQ tickets API requires query params for pagination ($p, $s)
+                # JSON body Paging is ignored by the tickets endpoint
                 resp = requests.post(
-                    f"{self.base_url}/api/v1.0/tickets",
+                    f"{self.base_url}/api/v1.0/tickets?$p={page_index}&$s=100",
                     headers=self.headers,
-                    json={"OnlyShowDeleted": False, "Paging": {"PageIndex": page_index, "PageSize": 100}},
+                    json={"OnlyShowDeleted": False},
                     timeout=30
                 )
                 resp.raise_for_status()
@@ -741,7 +745,8 @@ class IIQConnector:
 
                 if total_rows is None:
                     total_rows = data.get("Paging", {}).get("TotalRows", 0)
-                    logger.info(f"Total tickets to fetch: {total_rows}")
+                    pages_needed = (total_rows + page_size - 1) // page_size
+                    logger.info(f"Total tickets to fetch: {total_rows} ({pages_needed} pages at {page_size}/page)")
 
                 total_fetched += len(items)
 
@@ -751,46 +756,49 @@ class IIQConnector:
                         if not ticket_id:
                             continue
 
+                        # Extract nested objects (some may not exist or be different types)
                         owner = raw_data.get("Owner") or {}
-                        assignee = raw_data.get("Assignee") or {}
-                        team = raw_data.get("Team") or {}
-                        asset = raw_data.get("Asset") or {}
+                        assignee = raw_data.get("AssignedToUser") or {}  # Not "Assignee"
                         location = raw_data.get("Location") or {}
-                        status = raw_data.get("Status") or {}
-                        priority = raw_data.get("Priority") or {}
-                        category = raw_data.get("Category") or {}
+                        workflow_step = raw_data.get("WorkflowStep") or {}  # Status is WorkflowStep
+                        issue = raw_data.get("Issue") or {}  # Category is Issue
+
+                        # Priority is an int, not a dict
+                        priority_val = raw_data.get("Priority")
+                        priority_str = str(priority_val) if priority_val is not None else None
 
                         ticket_data = {
                             "ticket_id": ticket_id,
                             "ticket_number": raw_data.get("TicketNumber"),
                             "subject": raw_data.get("Subject"),
-                            "description": raw_data.get("Description"),
-                            "status": status.get("Name"),
-                            "priority": priority.get("Name"),
-                            "category": category.get("Name"),
+                            "description": raw_data.get("IssueDescription"),  # Not "Description"
+                            "status": workflow_step.get("Name") if isinstance(workflow_step, dict) else None,
+                            "priority": priority_str,
+                            "category": issue.get("Name") if isinstance(issue, dict) else None,
                             "created_date": raw_data.get("CreatedDate"),
                             "modified_date": raw_data.get("ModifiedDate"),
                             "closed_date": raw_data.get("ClosedDate"),
-                            "owner_id": owner.get("UserId"),
-                            "owner_name": owner.get("Name") or owner.get("FullName"),
-                            "owner_email": owner.get("Email"),
-                            "assignee_id": assignee.get("UserId"),
-                            "assignee_name": assignee.get("Name") or assignee.get("FullName"),
-                            "team_id": team.get("TeamId"),
-                            "team_name": team.get("Name"),
-                            "asset_id": asset.get("AssetId"),
-                            "asset_tag": asset.get("AssetTag"),
-                            "location_id": location.get("LocationId"),
-                            "location_name": location.get("Name"),
+                            "owner_id": owner.get("UserId") if isinstance(owner, dict) else None,
+                            "owner_name": owner.get("Name") if isinstance(owner, dict) else None,
+                            "owner_email": owner.get("Email") if isinstance(owner, dict) else None,
+                            "assignee_id": assignee.get("UserId") if isinstance(assignee, dict) else None,
+                            "assignee_name": assignee.get("Name") if isinstance(assignee, dict) else None,
+                            "team_id": None,  # No direct team field in tickets
+                            "team_name": None,
+                            "asset_id": None,  # No direct asset field in tickets
+                            "asset_tag": None,
+                            "location_id": location.get("LocationId") if isinstance(location, dict) else None,
+                            "location_name": location.get("Name") if isinstance(location, dict) else None,
                             "last_updated": datetime.utcnow(),
-                            "meta_data": raw_data
+                            "meta_data": json.dumps(raw_data)
                         }
 
-                        batch.append(ticket_data)
+                        batch[ticket_id] = ticket_data  # Dedupe by ticket_id
                         success_count += 1
 
                         if len(batch) >= batch_size:
-                            stmt = insert(IIQTicket).values(batch)
+                            batch_list = list(batch.values())
+                            stmt = insert(IIQTicket).values(batch_list)
                             stmt = stmt.on_conflict_do_update(
                                 index_elements=['ticket_id'],
                                 set_={k: stmt.excluded[k] for k in ticket_data.keys() if k != 'ticket_id'}
@@ -798,11 +806,15 @@ class IIQConnector:
                             db.execute(stmt)
                             db.commit()
                             logger.info(f"Committed {success_count} ticket records...")
-                            batch = []
+                            batch = {}
 
                     except Exception as e:
                         error_count += 1
                         logger.error(f"Error processing ticket: {e}")
+
+                # Log progress every 50 pages (~1000 tickets)
+                if page_index > 0 and page_index % 50 == 0:
+                    logger.info(f"Progress: {total_fetched}/{total_rows} tickets ({100*total_fetched//total_rows}%)")
 
                 if total_fetched >= total_rows:
                     break
@@ -816,10 +828,11 @@ class IIQConnector:
         # Final batch
         if batch:
             try:
-                stmt = insert(IIQTicket).values(batch)
+                batch_list = list(batch.values())
+                stmt = insert(IIQTicket).values(batch_list)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=['ticket_id'],
-                    set_={k: stmt.excluded[k] for k in batch[0].keys() if k != 'ticket_id'}
+                    set_={k: stmt.excluded[k] for k in batch_list[0].keys() if k != 'ticket_id'}
                 )
                 db.execute(stmt)
                 db.commit()
@@ -857,19 +870,23 @@ class IIQConnector:
                 if not location_id:
                     continue
 
+                # Extract address from nested Address object
+                address_obj = raw_data.get("Address") or {}
+                address_str = address_obj.get("Street1") if isinstance(address_obj, dict) else None
+
                 location_data = {
                     "location_id": location_id,
                     "name": raw_data.get("Name"),
                     "abbreviation": raw_data.get("Abbreviation"),
-                    "address": raw_data.get("Address"),
-                    "city": raw_data.get("City"),
-                    "state": raw_data.get("State"),
-                    "zip": raw_data.get("Zip"),
+                    "address": address_str,
+                    "city": address_obj.get("City") if isinstance(address_obj, dict) else None,
+                    "state": address_obj.get("State") if isinstance(address_obj, dict) else None,
+                    "zip": address_obj.get("Zip") if isinstance(address_obj, dict) else None,
                     "location_type": raw_data.get("LocationType", {}).get("Name") if isinstance(raw_data.get("LocationType"), dict) else raw_data.get("LocationType"),
                     "parent_id": raw_data.get("ParentLocationId"),
                     "is_active": raw_data.get("IsActive", True),
                     "last_updated": datetime.utcnow(),
-                    "meta_data": raw_data
+                    "meta_data": json.dumps(raw_data)
                 }
 
                 stmt = insert(IIQLocation).values(location_data)
@@ -884,6 +901,7 @@ class IIQConnector:
             return {"success": len(items), "errors": 0}
 
         except Exception as e:
+            db.rollback()
             logger.error(f"Location sync failed: {e}")
             return {"success": 0, "errors": 1, "message": str(e)}
 
@@ -904,20 +922,23 @@ class IIQConnector:
             resp.raise_for_status()
             data = resp.json()
             items = data.get("Items", [])
+            synced_count = 0
 
             for raw_data in items:
                 team_id = raw_data.get("TeamId")
-                if not team_id:
+                team_name = raw_data.get("TeamName") or raw_data.get("Name")
+                # Skip teams without ID or name (name is required in DB)
+                if not team_id or not team_name:
                     continue
 
                 team_data = {
                     "team_id": team_id,
-                    "name": raw_data.get("Name"),
-                    "description": raw_data.get("Description"),
-                    "member_count": raw_data.get("MemberCount"),
+                    "name": team_name,
+                    "description": raw_data.get("Description") or "",
+                    "member_count": raw_data.get("MembersCount") or raw_data.get("MemberCount"),
                     "is_active": raw_data.get("IsActive", True),
                     "last_updated": datetime.utcnow(),
-                    "meta_data": raw_data
+                    "meta_data": json.dumps(raw_data)
                 }
 
                 stmt = insert(IIQTeam).values(team_data)
@@ -926,12 +947,14 @@ class IIQConnector:
                     set_={k: stmt.excluded[k] for k in team_data.keys() if k != 'team_id'}
                 )
                 db.execute(stmt)
+                synced_count += 1
 
             db.commit()
-            logger.info(f"Synced {len(items)} teams")
-            return {"success": len(items), "errors": 0}
+            logger.info(f"Synced {synced_count} teams (skipped {len(items) - synced_count} without names)")
+            return {"success": synced_count, "errors": 0}
 
         except Exception as e:
+            db.rollback()
             logger.error(f"Team sync failed: {e}")
             return {"success": 0, "errors": 1, "message": str(e)}
 
@@ -952,17 +975,20 @@ class IIQConnector:
             resp.raise_for_status()
             data = resp.json()
             items = data.get("Items", [])
+            synced_count = 0
 
             for raw_data in items:
                 mfr_id = raw_data.get("ManufacturerId")
-                if not mfr_id:
+                mfr_name = raw_data.get("Name")
+                # Skip manufacturers without ID or name
+                if not mfr_id or not mfr_name:
                     continue
 
                 mfr_data = {
                     "manufacturer_id": mfr_id,
-                    "name": raw_data.get("Name"),
+                    "name": mfr_name,
                     "last_updated": datetime.utcnow(),
-                    "meta_data": raw_data
+                    "meta_data": json.dumps(raw_data)
                 }
 
                 stmt = insert(IIQManufacturer).values(mfr_data)
@@ -971,11 +997,13 @@ class IIQConnector:
                     set_={k: stmt.excluded[k] for k in mfr_data.keys() if k != 'manufacturer_id'}
                 )
                 db.execute(stmt)
+                synced_count += 1
 
             db.commit()
-            logger.info(f"Synced {len(items)} manufacturers")
-            return {"success": len(items), "errors": 0}
+            logger.info(f"Synced {synced_count} manufacturers")
+            return {"success": synced_count, "errors": 0}
 
         except Exception as e:
+            db.rollback()
             logger.error(f"Manufacturer sync failed: {e}")
             return {"success": 0, "errors": 1, "message": str(e)}

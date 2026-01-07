@@ -149,6 +149,53 @@ def preview_source(source_key: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=502, detail=f"IIQ API error: {str(e)}")
 
 
+@router.post("/{source_key}/sync")
+def sync_source(source_key: str, db: Session = Depends(get_db)):
+    """Trigger immediate sync for a specific IIQ data source."""
+    from app.services.iiq_sync import IIQConnector
+
+    config = db.query(IIQSyncConfig).filter(
+        IIQSyncConfig.source_key == source_key
+    ).first()
+
+    if not config:
+        raise HTTPException(status_code=404, detail=f"Source '{source_key}' not found")
+
+    # Create connector
+    connector = IIQConnector(
+        base_url=get_iiq_base_url(),
+        token=get_config('iiq_token'),
+        site_id=get_config('iiq_site_id'),
+        product_id=get_config('iiq_product_id')
+    )
+
+    # Map source keys to sync functions
+    sync_functions = {
+        'assets': connector.bulk_sync,
+        'users': connector.bulk_sync_users,
+        'tickets': connector.bulk_sync_tickets,
+        'locations': connector.bulk_sync_locations,
+        'teams': connector.bulk_sync_teams,
+        'manufacturers': connector.bulk_sync_manufacturers,
+    }
+
+    sync_func = sync_functions.get(source_key)
+    if not sync_func:
+        raise HTTPException(status_code=400, detail=f"No sync function for '{source_key}'")
+
+    try:
+        result = sync_func(db)
+        config.last_synced = datetime.utcnow()
+        db.commit()
+        return {
+            "source_key": source_key,
+            "status": "success",
+            "result": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+
 @router.post("/refresh-counts")
 def refresh_counts(db: Session = Depends(get_db)):
     """Re-probe IIQ API to update record counts for all sources."""

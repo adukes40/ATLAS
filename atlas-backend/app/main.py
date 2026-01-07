@@ -108,8 +108,8 @@ app.include_router(reports.router, dependencies=[Depends(require_auth)])
 # Settings router (require admin - checked per-endpoint)
 app.include_router(settings.router)
 
-# IIQ Sources router (require admin - checked per-endpoint)
-app.include_router(iiq_sources.router)
+# IIQ Sources router (require authentication)
+app.include_router(iiq_sources.router, dependencies=[Depends(require_auth)])
 
 # Config router (integrations status - requires auth)
 app.include_router(config.router, dependencies=[Depends(require_auth)])

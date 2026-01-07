@@ -193,16 +193,22 @@ export default function IIQSettings() {
         {/* Product ID */}
         <div>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-            Product ID (Chromebooks)
+            Product ID
+            <span className="ml-2 text-xs text-slate-400 dark:text-slate-500 font-normal">
+              (optional)
+            </span>
           </label>
           <input
             type="text"
             name="iiq_product_id"
             value={settings.iiq_product_id}
             onChange={handleChange}
-            placeholder="UUID for Chromebook product type"
+            placeholder="UUID from IIQ - not required for sync"
             className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            IIQ syncs all assets regardless of this setting. Reserved for future ticket integration.
+          </p>
         </div>
 
         {/* Actions */}

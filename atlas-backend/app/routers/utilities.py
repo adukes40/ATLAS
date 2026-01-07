@@ -12,7 +12,8 @@ from app.database import get_db
 from app.models import (
     IIQAsset, IIQUser, GoogleDevice, GoogleUser, NetworkCache, SyncLog,
     MerakiNetwork, MerakiDevice, MerakiSSID, MerakiClient,
-    SyncSchedule, SyncNotification
+    SyncSchedule, SyncNotification,
+    IIQTicket, IIQLocation, IIQTeam, IIQManufacturer
 )
 
 router = APIRouter(prefix="/api/utilities", tags=["utilities"])
@@ -67,6 +68,27 @@ ALLOWED_TABLES = {
         "model": MerakiClient,
         "pk": "mac",
         "columns": ["mac", "description", "manufacturer", "os", "last_ssid", "last_ap_name", "status", "last_seen", "last_updated"]
+    },
+    "iiq_tickets": {
+        "model": IIQTicket,
+        "pk": "ticket_id",
+        "columns": ["ticket_id", "ticket_number", "subject", "status", "priority", "category",
+                   "owner_name", "assignee_name", "location_name", "created_date", "closed_date", "last_updated"]
+    },
+    "iiq_locations": {
+        "model": IIQLocation,
+        "pk": "location_id",
+        "columns": ["location_id", "name", "abbreviation", "address", "city", "state", "location_type", "last_updated"]
+    },
+    "iiq_teams": {
+        "model": IIQTeam,
+        "pk": "team_id",
+        "columns": ["team_id", "name", "description", "member_count", "is_active", "last_updated"]
+    },
+    "iiq_manufacturers": {
+        "model": IIQManufacturer,
+        "pk": "manufacturer_id",
+        "columns": ["manufacturer_id", "name", "last_updated"]
     }
 }
 
@@ -334,6 +356,9 @@ def get_tables_overview(db: Session = Depends(get_db)):
             "last_updated": last_updated.isoformat() if last_updated else None,
             "columns": config["columns"]
         })
+
+    # Sort alphabetically by table name
+    tables.sort(key=lambda x: x["name"])
 
     return tables
 

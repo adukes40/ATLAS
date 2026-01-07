@@ -90,6 +90,12 @@ def main():
                     if isinstance(result, dict):
                         total_records += result.get("inserted", 0) + result.get("updated", 0) + result.get("success", 0)
                         total_failed += result.get("failed", 0)
+
+                    # Update sync log with progress after each source
+                    sync_log.records_processed = total_records
+                    sync_log.records_failed = total_failed
+                    db.commit()
+
                 except Exception as e:
                     logger.error(f"Error syncing {source.display_name}: {e}")
                     total_failed += 1
