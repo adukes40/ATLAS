@@ -1,0 +1,169 @@
+#!/bin/bash
+#
+# ATLAS Update Script
+# Updates code from git, fixes permissions, rebuilds frontend, restarts service
+#
+# Usage: sudo ./update.sh
+#
+
+set -e  # Exit on error
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Paths
+ATLAS_ROOT="/opt/atlas"
+BACKEND_DIR="$ATLAS_ROOT/atlas-backend"
+FRONTEND_DIR="$ATLAS_ROOT/atlas-ui"
+VENV_PYTHON="$BACKEND_DIR/venv/bin/python3"
+
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}        ATLAS Update Script${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo ""
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}Error: Please run as root (sudo ./update.sh)${NC}"
+    exit 1
+fi
+
+# Check if ATLAS directory exists
+if [ ! -d "$ATLAS_ROOT" ]; then
+    echo -e "${RED}Error: ATLAS directory not found at $ATLAS_ROOT${NC}"
+    exit 1
+fi
+
+cd "$ATLAS_ROOT"
+
+# Show current version
+echo -e "${YELLOW}Current version:${NC}"
+git log -1 --format="  %h %s (%cr)"
+echo ""
+
+# Check for uncommitted changes
+if [ -n "$(git status --porcelain)" ]; then
+    echo -e "${YELLOW}Warning: You have uncommitted local changes:${NC}"
+    git status --short
+    echo ""
+    read -p "Continue anyway? (y/N) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${RED}Update cancelled${NC}"
+        exit 1
+    fi
+fi
+
+# Fetch and show what will change
+echo -e "${YELLOW}Fetching updates...${NC}"
+git fetch origin main
+
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse origin/main)
+
+if [ "$LOCAL" = "$REMOTE" ]; then
+    echo -e "${GREEN}Already up to date!${NC}"
+    echo ""
+    read -p "Continue with rebuild anyway? (y/N) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Nothing to do. Exiting.${NC}"
+        exit 0
+    fi
+else
+    echo -e "${YELLOW}Changes to be applied:${NC}"
+    git log --oneline HEAD..origin/main
+    echo ""
+    read -p "Apply these updates? (y/N) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${RED}Update cancelled${NC}"
+        exit 1
+    fi
+fi
+
+# Pull updates
+echo ""
+echo -e "${BLUE}[1/6] Pulling latest code...${NC}"
+git pull origin main
+echo -e "${GREEN}Done${NC}"
+
+# Fix script permissions
+echo ""
+echo -e "${BLUE}[2/6] Fixing script permissions...${NC}"
+chown root:atlas "$BACKEND_DIR/scripts/"*.py 2>/dev/null || true
+chmod 750 "$BACKEND_DIR/scripts/"*.py 2>/dev/null || true
+echo -e "${GREEN}Done${NC}"
+
+# Update Python dependencies if requirements.txt changed
+echo ""
+echo -e "${BLUE}[3/6] Checking Python dependencies...${NC}"
+if [ -f "$BACKEND_DIR/requirements.txt" ]; then
+    cd "$BACKEND_DIR"
+    source venv/bin/activate
+    pip install -q -r requirements.txt
+    deactivate
+    echo -e "${GREEN}Done${NC}"
+else
+    echo -e "${YELLOW}No requirements.txt found, skipping${NC}"
+fi
+
+# Update npm dependencies if package.json changed
+echo ""
+echo -e "${BLUE}[4/6] Checking npm dependencies...${NC}"
+cd "$FRONTEND_DIR"
+if [ -f "package.json" ]; then
+    npm install --silent
+    echo -e "${GREEN}Done${NC}"
+else
+    echo -e "${YELLOW}No package.json found, skipping${NC}"
+fi
+
+# Rebuild frontend
+echo ""
+echo -e "${BLUE}[5/6] Rebuilding frontend...${NC}"
+npm run build --silent
+echo -e "${GREEN}Done${NC}"
+
+# Restart service
+echo ""
+echo -e "${BLUE}[6/6] Restarting ATLAS service...${NC}"
+if systemctl is-active --quiet atlas.service; then
+    systemctl restart atlas.service
+    sleep 2
+    if systemctl is-active --quiet atlas.service; then
+        echo -e "${GREEN}Service restarted successfully${NC}"
+    else
+        echo -e "${RED}Warning: Service failed to start!${NC}"
+        echo "Check logs with: journalctl -u atlas.service -n 50"
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}Service was not running, starting it...${NC}"
+    systemctl start atlas.service
+    sleep 2
+    if systemctl is-active --quiet atlas.service; then
+        echo -e "${GREEN}Service started successfully${NC}"
+    else
+        echo -e "${RED}Warning: Service failed to start!${NC}"
+        echo "Check logs with: journalctl -u atlas.service -n 50"
+        exit 1
+    fi
+fi
+
+# Show new version
+echo ""
+echo -e "${BLUE}========================================${NC}"
+echo -e "${GREEN}Update complete!${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo ""
+echo -e "${YELLOW}New version:${NC}"
+git log -1 --format="  %h %s (%cr)"
+echo ""
+echo -e "${YELLOW}Service status:${NC}"
+systemctl status atlas.service --no-pager | head -5
+echo ""
