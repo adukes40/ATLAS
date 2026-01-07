@@ -135,6 +135,7 @@ async def _test_iiq_connection(db) -> TestConnectionResult:
     try:
         iiq_url = get_setting(db, "iiq_url")
         iiq_token = get_setting(db, "iiq_token")
+        iiq_site_id = get_setting(db, "iiq_site_id")
 
         if not iiq_url or not iiq_token:
             return TestConnectionResult(
@@ -142,29 +143,33 @@ async def _test_iiq_connection(db) -> TestConnectionResult:
                 message="IIQ URL or token not configured"
             )
 
+        if not iiq_site_id:
+            return TestConnectionResult(
+                success=False,
+                message="IIQ Site ID not configured"
+            )
+
         import httpx
 
         headers = {
-            "Client": "ApiClient",
+            "Client": iiq_site_id,
             "Authorization": f"Bearer {iiq_token}",
             "Accept": "application/json",
         }
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                f"{iiq_url}/api/v1.0/assets/",
+                f"{iiq_url}/api/v1.0/assets",
                 headers=headers,
                 json={
                     "OnlyShowDeleted": False,
-                    "Filters": [],
-                    "Facets": [],
-                    "Pagination": {"PageSize": 1, "PageIndex": 0}
+                    "Paging": {"PageSize": 1, "PageIndex": 0}
                 }
             )
 
             if response.status_code == 200:
                 data = response.json()
-                total = data.get("Paging", {}).get("TotalCount", 0)
+                total = data.get("Paging", {}).get("TotalRows", 0)
                 return TestConnectionResult(
                     success=True,
                     message=f"Connected successfully",
