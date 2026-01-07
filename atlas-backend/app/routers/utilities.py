@@ -148,6 +148,8 @@ def run_sync_script(source: str, trigger: str = "manual"):
             "LC_ALL": "en_US.UTF-8"
         }
 
+        print(f"[run_sync_script] Starting {source} sync: {script_path}")
+
         # Start the sync script as a subprocess (fire-and-forget)
         process = subprocess.Popen(
             ["/opt/atlas/atlas-backend/venv/bin/python3", script_path],
@@ -158,11 +160,15 @@ def run_sync_script(source: str, trigger: str = "manual"):
             start_new_session=True  # Detach from parent process group
         )
 
+        print(f"[run_sync_script] {source} subprocess started with PID {process.pid}")
+
         # Track the running process for cancellation support
         RUNNING_PROCESSES[source] = process
 
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[run_sync_script] ERROR starting {source} sync: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 @router.post("/sync/all")

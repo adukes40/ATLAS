@@ -163,7 +163,12 @@ export default function SyncCard({
     slate: 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/20'
   }
 
+  // Debug logging
+  console.log(`[SyncCard ${source}] status prop:`, status)
+  console.log(`[SyncCard ${source}] status.status:`, status?.status)
+
   const isRunning = status?.status === 'running'
+  console.log(`[SyncCard ${source}] isRunning:`, isRunning)
   const isEnabled = schedule?.enabled !== false
   const canSync = !isRunning && !disabled
 

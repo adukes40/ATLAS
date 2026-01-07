@@ -67,15 +67,22 @@ export default function UtilitiesIndex() {
         axios.get('/api/utilities/sync-history'),
         axios.get('/api/utilities/tables')
       ])
+
+      // Debug logging
+      console.log('[fetchData] sync-status response:', statusRes.data)
+      console.log('[fetchData] meraki status:', statusRes.data?.meraki?.status)
+
       setSyncStatus(statusRes.data)
       setSchedules(schedulesRes.data)
       setSyncHistory(historyRes.data)
       setTables(tablesRes.data)
 
       // Check if any sync is running (only enabled sources)
+      console.log('[fetchData] enabledSources:', enabledSources)
       const anyRunning = enabledSources.some(
         s => statusRes.data[s]?.status === 'running'
       )
+      console.log('[fetchData] anyRunning:', anyRunning)
 
       if (anyRunning) {
         startPolling()
