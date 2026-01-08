@@ -22,7 +22,7 @@ export default function UtilitiesIndex() {
         </h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
           Sync controls have moved to each integration's Settings page.
-          Visit Settings > IIQ, Google, or Meraki to manage syncs.
+          Visit Settings &gt; IIQ, Google, or Meraki to manage syncs.
         </p>
       </div>
     </div>
