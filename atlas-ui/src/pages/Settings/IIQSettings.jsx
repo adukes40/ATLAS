@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { Database, Save, TestTube, Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import SyncPanel from '../../components/SyncPanel'
 
 export default function IIQSettings() {
   const [settings, setSettings] = useState({
@@ -241,6 +242,9 @@ export default function IIQSettings() {
           </div>
         )}
       </div>
+
+      {/* Sync Management */}
+      <SyncPanel service="iiq" />
     </div>
   )
 }

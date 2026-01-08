@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { Wifi, Save, TestTube, Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import SyncPanel from '../../components/SyncPanel'
 
 export default function MerakiSettings() {
   const [settings, setSettings] = useState({
@@ -227,6 +228,9 @@ export default function MerakiSettings() {
           </div>
         )}
       </div>
+
+      {/* Sync Management */}
+      <SyncPanel service="meraki" />
     </div>
   )
 }
