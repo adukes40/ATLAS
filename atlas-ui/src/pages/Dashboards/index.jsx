@@ -48,6 +48,7 @@ export default function DashboardsIndex() {
       icon: Chrome,
       color: 'emerald',
       to: '/dashboards/google',
+      settingsTo: '/settings/google',
       ready: true,
       stat: stats?.google?.total_devices,
       statLabel: 'devices'
@@ -59,6 +60,7 @@ export default function DashboardsIndex() {
       icon: Server,
       color: 'blue',
       to: '/dashboards/iiq',
+      settingsTo: '/settings/iiq',
       ready: true,
       stat: stats?.iiq?.total_assets,
       statLabel: 'assets'
@@ -70,6 +72,7 @@ export default function DashboardsIndex() {
       icon: Wifi,
       color: 'purple',
       to: '/dashboards/meraki',
+      settingsTo: '/settings/meraki',
       ready: true,
       stat: stats?.network?.cached_clients,
       statLabel: 'cached'
@@ -97,6 +100,13 @@ export default function DashboardsIndex() {
       icon: 'text-purple-500',
       hover: 'hover:border-purple-300 dark:hover:border-purple-700',
       stat: 'text-purple-600 dark:text-purple-400'
+    },
+    gray: {
+      bg: 'bg-slate-50 dark:bg-slate-900',
+      border: 'border-slate-200 dark:border-slate-800',
+      icon: 'text-slate-400',
+      hover: 'hover:border-slate-300 dark:hover:border-slate-700',
+      stat: 'text-slate-400'
     }
   }
 
@@ -185,13 +195,14 @@ export default function DashboardsIndex() {
       <div>
         <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Data Sources</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {dashboards.filter(d => integrations[d.id]).map((dashboard) => {
-            const colors = colorClasses[dashboard.color]
+          {dashboards.map((dashboard) => {
+            const isConfigured = integrations[dashboard.id]
+            const colors = isConfigured ? colorClasses[dashboard.color] : colorClasses.gray
             const Icon = dashboard.icon
 
             const CardContent = (
               <>
-                {!dashboard.ready && (
+                {!dashboard.ready && isConfigured && (
                   <span className="absolute top-4 right-4 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-white dark:bg-slate-800 px-2 py-1 rounded shadow-sm">
                     Coming Soon
                   </span>
@@ -201,7 +212,7 @@ export default function DashboardsIndex() {
                   <div className={`inline-flex p-3 rounded-xl bg-white dark:bg-slate-800 shadow-sm`}>
                     <Icon className={`h-6 w-6 ${colors.icon}`} />
                   </div>
-                  {dashboard.stat !== undefined && (
+                  {isConfigured && dashboard.stat !== undefined && (
                     <div className="text-right">
                       <p className={`text-2xl font-bold ${colors.stat}`}>{dashboard.stat}</p>
                       <p className="text-[10px] text-slate-400 uppercase">{dashboard.statLabel}</p>
@@ -212,39 +223,46 @@ export default function DashboardsIndex() {
                 <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-1">
                   {dashboard.title}
                 </h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                  {dashboard.description}
-                </p>
-
-                {dashboard.ready ? (
-                  <span className={`inline-flex items-center gap-1 text-sm font-medium ${colors.icon}`}>
-                    View Dashboard <ArrowRight className="h-4 w-4" />
-                  </span>
+                
+                {isConfigured ? (
+                  <>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                      {dashboard.description}
+                    </p>
+                    {dashboard.ready ? (
+                      <span className={`inline-flex items-center gap-1 text-sm font-medium ${colors.icon}`}>
+                        View Dashboard <ArrowRight className="h-4 w-4" />
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-sm font-medium text-slate-400">
+                        Dashboard in development
+                      </span>
+                    )}
+                  </>
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-sm font-medium text-slate-400">
-                    Dashboard in development
-                  </span>
+                  <>
+                    <p className="text-sm text-amber-600 dark:text-amber-500 mb-4 font-medium">
+                      No API connection, please configure app connection in the settings menu.
+                    </p>
+                    <span className={`inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300`}>
+                      Go to Settings <ArrowRight className="h-4 w-4" />
+                    </span>
+                  </>
                 )}
               </>
             )
 
-            const vendorBorder = getVendorBorderClass(dashboard.id)
+            const vendorBorder = isConfigured ? getVendorBorderClass(dashboard.id) : ''
+            const linkTo = isConfigured ? dashboard.to : dashboard.settingsTo
 
-            return dashboard.ready ? (
+            return (
               <Link
                 key={dashboard.id}
-                to={dashboard.to}
+                to={linkTo}
                 className={`relative p-6 rounded-2xl border-2 transition-all duration-200 ${colors.bg} ${colors.border} ${colors.hover} ${vendorBorder} cursor-pointer block`}
               >
                 {CardContent}
               </Link>
-            ) : (
-              <div
-                key={dashboard.id}
-                className={`relative p-6 rounded-2xl border-2 transition-all duration-200 ${colors.bg} ${colors.border} ${vendorBorder}`}
-              >
-                {CardContent}
-              </div>
             )
           })}
         </div>
