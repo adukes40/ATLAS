@@ -115,8 +115,23 @@ collect_config() {
   echo -e "  ${DIM}through the web interface after installation.${CL}"
   echo ""
 
+  # Repository Selection
+  echo -e "${YW}Step 1: Repository Selection${CL}"
+  echo "  1) Production (Stable) - https://github.com/adukes40/ATLAS.git"
+  echo "  2) Development (Testing) - https://github.com/hankscafe/ATLAS.git"
+  read -p "  Select repository [1]: " REPO_CHOICE
+
+  if [[ "$REPO_CHOICE" == "2" ]]; then
+    GITHUB_REPO="https://github.com/hankscafe/ATLAS.git"
+    echo -e "  ${GN}Selected: Development${CL}"
+  else
+    GITHUB_REPO="https://github.com/adukes40/ATLAS.git"
+    echo -e "  ${GN}Selected: Production${CL}"
+  fi
+  echo ""
+
   # Server Configuration
-  echo -e "${YW}Step 1: Server Configuration${CL}"
+  echo -e "${YW}Step 2: Server Configuration${CL}"
   read -p "  Enter your domain or hostname (e.g., atlas.yourdistrict.org): " ATLAS_DOMAIN
   if [[ -z "$ATLAS_DOMAIN" ]]; then
     ATLAS_DOMAIN="localhost"
@@ -124,7 +139,7 @@ collect_config() {
   echo ""
 
   # Database Configuration
-  echo -e "${YW}Step 2: Database Configuration${CL}"
+  echo -e "${YW}Step 3: Database Configuration${CL}"
   read -sp "  Enter PostgreSQL password (leave blank to generate): " DB_PASSWORD
   if [[ -n "$DB_PASSWORD" ]]; then
     echo -e " ${GN}[set]${CL}"
@@ -136,7 +151,7 @@ collect_config() {
   echo ""
 
   # Admin Account
-  echo -e "${YW}Step 3: Admin Account${CL}"
+  echo -e "${YW}Step 4: Admin Account${CL}"
   echo -e "  ${DIM}Create the first administrator account for ATLAS${CL}"
   echo ""
 
@@ -172,6 +187,7 @@ collect_config() {
   echo -e "${BOLD}${BL}|                    REVIEW CONFIGURATION                           |${CL}"
   echo -e "${BOLD}${BL}+-------------------------------------------------------------------+${CL}"
   echo ""
+  echo -e "  ${BOLD}Repository:${CL} $GITHUB_REPO"
   echo -e "  ${BOLD}Server:${CL}     $ATLAS_DOMAIN"
   echo -e "  ${BOLD}Database:${CL}   atlas_db (user: atlas_admin)"
   echo -e "  ${BOLD}Admin:${CL}      $ADMIN_USERNAME"
