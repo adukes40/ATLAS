@@ -58,6 +58,24 @@ if [ -n "$(git status --porcelain)" ]; then
     fi
 fi
 
+# Select Update Source
+echo -e "${YELLOW}Select Update Source:${NC}"
+echo "  1) Production (Stable) - https://github.com/adukes40/ATLAS.git"
+echo "  2) Development (Testing) - https://github.com/hankscafe/ATLAS.git"
+echo ""
+read -p "Enter selection [1]: " REPO_SELECT
+
+if [[ "$REPO_SELECT" == "2" ]]; then
+    TARGET_REPO="https://github.com/hankscafe/ATLAS.git"
+    echo -e "${GREEN}Selected: Development${NC}"
+else
+    TARGET_REPO="https://github.com/adukes40/ATLAS.git"
+    echo -e "${GREEN}Selected: Production${NC}"
+fi
+echo ""
+
+git remote set-url origin "$TARGET_REPO"
+
 # Fetch and show what will change
 echo -e "${YELLOW}Fetching updates...${NC}"
 git fetch origin main
