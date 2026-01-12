@@ -50,7 +50,8 @@ if [ -n "$(git status --porcelain)" ]; then
     echo -e "${YELLOW}Warning: You have uncommitted local changes:${NC}"
     git status --short
     echo ""
-    read -p "Continue anyway? (y/N) " -n 1 -r < /dev/tty
+    echo -n "Continue anyway? (y/N) "
+    read -n 1 -r REPLY
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${RED}Update cancelled${NC}"
@@ -63,7 +64,8 @@ echo -e "${YELLOW}Select Update Source:${NC}"
 echo "  1) Production (Stable) - https://github.com/adukes40/ATLAS.git"
 echo "  2) Development (Testing) - https://github.com/hankscafe/ATLAS.git"
 echo ""
-read -p "Enter selection [1]: " REPO_SELECT < /dev/tty
+echo -n "Enter selection [1]: "
+read -r REPO_SELECT
 
 if [[ "$REPO_SELECT" == "2" ]]; then
     TARGET_REPO="https://github.com/hankscafe/ATLAS.git"
@@ -76,7 +78,8 @@ echo ""
 
 # Select Branch
 echo -e "${YELLOW}Select Branch:${NC}"
-read -p "Enter branch name [main]: " BRANCH_INPUT < /dev/tty
+echo -n "Enter branch name [main]: "
+read -r BRANCH_INPUT
 BRANCH_NAME=${BRANCH_INPUT:-main}
 echo -e "${GREEN}Selected branch: $BRANCH_NAME${NC}"
 echo ""
@@ -104,7 +107,8 @@ REMOTE=$(git rev-parse "origin/$BRANCH_NAME")
 if [ "$LOCAL" = "$REMOTE" ]; then
     echo -e "${GREEN}Already up to date!${NC}"
     echo ""
-    read -p "Continue with rebuild anyway? (y/N) " -n 1 -r < /dev/tty
+    echo -n "Continue with rebuild anyway? (y/N) "
+    read -n 1 -r REPLY
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}Nothing to do. Exiting.${NC}"
@@ -114,7 +118,8 @@ else
     echo -e "${YELLOW}Changes to be applied:${NC}"
     git log --oneline "HEAD..origin/$BRANCH_NAME"
     echo ""
-    read -p "Apply these updates? (y/N) " -n 1 -r < /dev/tty
+    echo -n "Apply these updates? (y/N) "
+    read -n 1 -r REPLY
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${RED}Update cancelled${NC}"
