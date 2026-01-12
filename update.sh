@@ -19,7 +19,6 @@ NC='\033[0m' # No Color
 ATLAS_ROOT="/opt/atlas"
 BACKEND_DIR="$ATLAS_ROOT/atlas-backend"
 FRONTEND_DIR="$ATLAS_ROOT/atlas-ui"
-VENV_PYTHON="$BACKEND_DIR/venv/bin/python3"
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}        ATLAS Update Script${NC}"
@@ -50,10 +49,9 @@ if [ -n "$(git status --porcelain)" ]; then
     echo -e "${YELLOW}Warning: You have uncommitted local changes:${NC}"
     git status --short
     echo ""
-    echo -n "Continue anyway? (y/N) "
-    read -n 1 -r REPLY < /dev/tty
+    read -p "Continue anyway? (y/N) " CONFIRM
     echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
         echo -e "${RED}Update cancelled${NC}"
         exit 1
     fi
@@ -66,8 +64,7 @@ echo -e "${YELLOW}Select Update Source:${NC}"
 echo "  1) Production (Stable) - https://github.com/adukes40/ATLAS.git"
 echo "  2) Development (Testing) - https://github.com/hankscafe/ATLAS.git"
 echo ""
-echo -n "Enter selection [1]: "
-read -r REPO_SELECT < /dev/tty
+read -p "Enter selection [1]: " REPO_SELECT
 
 if [[ "$REPO_SELECT" == "2" ]]; then
     TARGET_REPO="https://github.com/hankscafe/ATLAS.git"
@@ -78,7 +75,7 @@ else
 fi
 echo ""
 
-# Update remote origin
+# Update remote origin immediately so we can fetch branches
 git remote set-url origin "$TARGET_REPO"
 
 # ---------------------------------------------------------
@@ -89,8 +86,7 @@ git fetch origin --prune
 
 echo ""
 echo -e "${YELLOW}Select Branch:${NC}"
-echo -n "Enter branch name [main]: "
-read -r BRANCH_INPUT < /dev/tty
+read -p "Enter branch name [main]: " BRANCH_INPUT
 BRANCH_NAME=${BRANCH_INPUT:-main}
 
 # Validate branch existence on remote
@@ -127,10 +123,9 @@ REMOTE=$(git rev-parse "origin/$BRANCH_NAME")
 if [ "$LOCAL" = "$REMOTE" ]; then
     echo -e "${GREEN}Already up to date!${NC}"
     echo ""
-    echo -n "Continue with rebuild anyway? (y/N) "
-    read -n 1 -r REPLY < /dev/tty
+    read -p "Continue with rebuild anyway? (y/N) " CONFIRM
     echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}Nothing to do. Exiting.${NC}"
         exit 0
     fi
@@ -138,10 +133,9 @@ else
     echo -e "${YELLOW}Changes to be applied:${NC}"
     git log --oneline "HEAD..origin/$BRANCH_NAME"
     echo ""
-    echo -n "Apply these updates? (y/N) "
-    read -n 1 -r REPLY < /dev/tty
+    read -p "Apply these updates? (y/N) " CONFIRM
     echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
         echo -e "${RED}Update cancelled${NC}"
         exit 1
     fi
