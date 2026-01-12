@@ -5,13 +5,11 @@ import {
   LayoutDashboard, Chrome, Server, Wifi, ArrowRight,
   Monitor, Users, AlertTriangle, CheckCircle, Loader2
 } from 'lucide-react'
-import { useIntegrations } from '../../context/IntegrationsContext'
 
 export default function DashboardsIndex() {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const { integrations } = useIntegrations()
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -135,7 +133,7 @@ export default function DashboardsIndex() {
       ) : stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {/* IIQ Assets */}
-          {integrations.iiq && (
+          {stats.iiq?.configured && (
             <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
@@ -148,7 +146,7 @@ export default function DashboardsIndex() {
           )}
 
           {/* Assigned (IIQ) */}
-          {integrations.iiq && (
+          {stats.iiq?.configured && (
             <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
@@ -162,7 +160,7 @@ export default function DashboardsIndex() {
           )}
 
           {/* Google Active */}
-          {integrations.google && (
+          {stats.google?.configured && (
             <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('google')}`}>
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
@@ -176,7 +174,7 @@ export default function DashboardsIndex() {
           )}
 
           {/* AUE Expired (Google) */}
-          {integrations.google && (
+          {stats.google?.configured && (
             <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('google')}`}>
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
@@ -192,11 +190,13 @@ export default function DashboardsIndex() {
       )}
 
       {/* Dashboard Cards */}
+      {!loading && stats && (
       <div>
         <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Data Sources</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {dashboards.map((dashboard) => {
-            const isConfigured = integrations[dashboard.id]
+            const statsKey = dashboard.id === 'meraki' ? 'network' : dashboard.id
+            const isConfigured = stats[statsKey]?.configured
             const colors = isConfigured ? colorClasses[dashboard.color] : colorClasses.gray
             const Icon = dashboard.icon
 
@@ -267,6 +267,7 @@ export default function DashboardsIndex() {
           })}
         </div>
       </div>
+      )}
 
       {/* Info Banner */}
       <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-6 text-center">

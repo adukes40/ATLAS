@@ -11,6 +11,7 @@ from app.models import (
     MerakiNetwork, MerakiDevice, MerakiSSID, MerakiClient
 )
 from app.auth import get_current_user
+from app.config import get_iiq_config, get_google_config, get_meraki_config
 
 
 def get_user_identifier(request: Request) -> str:
@@ -85,19 +86,32 @@ def get_overview_stats(request: Request, db: Session = Depends(get_db)):
     # Network Stats (primary key is mac_address)
     network_total = db.query(func.count(NetworkCache.mac_address)).scalar() or 0
 
+    # Check configurations
+    iiq_config = get_iiq_config()
+    iiq_configured = bool(iiq_config.get("url") and iiq_config.get("token"))
+
+    google_config = get_google_config()
+    google_configured = bool(google_config.get("admin_email") and (google_config.get("credentials_json") or google_config.get("credentials_path")))
+
+    meraki_config = get_meraki_config()
+    meraki_configured = bool(meraki_config.get("api_key"))
+
     return {
         "iiq": {
+            "configured": iiq_configured,
             "total_assets": iiq_total,
             "active": iiq_active,
             "assigned": iiq_assigned,
             "unassigned": iiq_total - iiq_assigned
         },
         "google": {
+            "configured": google_configured,
             "total_devices": google_total,
             "active": google_active,
             "aue_expired": google_aue_expired
         },
         "network": {
+            "configured": meraki_configured,
             "cached_clients": network_total
         }
     }
