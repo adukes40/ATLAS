@@ -8,7 +8,7 @@
 
 set -e  # Exit on error
 
-# 1. Capture CLI argument for branch
+# 1. Capture CLI argument for branch immediately
 CLI_BRANCH=$1
 
 # Colors for output
@@ -52,8 +52,9 @@ if [ -n "$(git status --porcelain)" ]; then
     echo -e "${YELLOW}Warning: You have uncommitted local changes:${NC}"
     git status --short
     echo ""
-    # CHANGED: Using standard read to clear input buffer (avoids skipping next prompt)
-    read -r -p "Continue anyway? (y/N) " CONFIRM
+    # FIXED: Used standard read to prevent input skipping
+    echo -n "Continue anyway? (y/N) "
+    read -r CONFIRM < /dev/tty
     echo ""
     if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
         echo -e "${RED}Update cancelled${NC}"
@@ -69,8 +70,9 @@ echo "  1) Production (Stable) - https://github.com/adukes40/ATLAS.git"
 echo "  2) Development (Testing) - https://github.com/hankscafe/ATLAS.git"
 echo ""
 
-# Read from terminal explicitly to ensure no skipping
-read -e -p "Enter selection [1]: " REPO_SELECT < /dev/tty
+# FIXED: Explicitly reading from tty to ensure prompt works
+echo -n "Enter selection [1]: "
+read -r REPO_SELECT < /dev/tty
 
 if [[ "$REPO_SELECT" == "2" ]]; then
     TARGET_REPO="https://github.com/hankscafe/ATLAS.git"
@@ -81,14 +83,14 @@ else
 fi
 echo ""
 
-# Update remote origin
+# Update remote origin immediately
 git remote set-url origin "$TARGET_REPO"
 
 # ---------------------------------------------------------
 # 2. Select Branch
 # ---------------------------------------------------------
 
-# Logic: If CLI argument exists, use it. Otherwise, prompt user.
+# Logic: If CLI argument was provided, use it. Otherwise, prompt user.
 if [ -n "$CLI_BRANCH" ]; then
     BRANCH_NAME="$CLI_BRANCH"
     echo -e "${GREEN}Using branch from command line: $BRANCH_NAME${NC}"
@@ -98,13 +100,13 @@ else
     
     echo ""
     echo -e "${YELLOW}Select Branch:${NC}"
-    # Read from terminal explicitly
-    read -e -p "Enter branch name [main]: " BRANCH_INPUT < /dev/tty
+    echo -n "Enter branch name [main]: "
+    read -r BRANCH_INPUT < /dev/tty
     BRANCH_NAME=${BRANCH_INPUT:-main}
 fi
 
 # Validate branch existence on remote
-# Fetch specific branch first to ensure we have the ref
+echo -e "${YELLOW}Verifying branch '$BRANCH_NAME'...${NC}"
 git fetch origin "$BRANCH_NAME" > /dev/null 2>&1 || true
 
 if ! git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
@@ -140,7 +142,8 @@ REMOTE=$(git rev-parse "origin/$BRANCH_NAME")
 if [ "$LOCAL" = "$REMOTE" ]; then
     echo -e "${GREEN}Already up to date!${NC}"
     echo ""
-    read -r -p "Continue with rebuild anyway? (y/N) " CONFIRM
+    echo -n "Continue with rebuild anyway? (y/N) "
+    read -r CONFIRM < /dev/tty
     echo ""
     if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}Nothing to do. Exiting.${NC}"
@@ -150,7 +153,8 @@ else
     echo -e "${YELLOW}Changes to be applied:${NC}"
     git log --oneline "HEAD..origin/$BRANCH_NAME"
     echo ""
-    read -r -p "Apply these updates? (y/N) " CONFIRM
+    echo -n "Apply these updates? (y/N) "
+    read -r CONFIRM < /dev/tty
     echo ""
     if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
         echo -e "${RED}Update cancelled${NC}"
