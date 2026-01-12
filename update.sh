@@ -74,14 +74,32 @@ else
 fi
 echo ""
 
+# Select Branch
+echo -e "${YELLOW}Select Branch:${NC}"
+read -p "Enter branch name [main]: " BRANCH_INPUT
+BRANCH_NAME=${BRANCH_INPUT:-main}
+echo -e "${GREEN}Selected branch: $BRANCH_NAME${NC}"
+echo ""
+
 git remote set-url origin "$TARGET_REPO"
 
 # Fetch and show what will change
 echo -e "${YELLOW}Fetching updates...${NC}"
-git fetch origin main
+git fetch origin "$BRANCH_NAME"
+
+# Switch branch if needed
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [ "$CURRENT_BRANCH" != "$BRANCH_NAME" ]; then
+    echo -e "${BLUE}Switching to branch $BRANCH_NAME...${NC}"
+    if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
+        git checkout "$BRANCH_NAME"
+    else
+        git checkout -b "$BRANCH_NAME" "origin/$BRANCH_NAME"
+    fi
+fi
 
 LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/main)
+REMOTE=$(git rev-parse "origin/$BRANCH_NAME")
 
 if [ "$LOCAL" = "$REMOTE" ]; then
     echo -e "${GREEN}Already up to date!${NC}"
@@ -94,7 +112,7 @@ if [ "$LOCAL" = "$REMOTE" ]; then
     fi
 else
     echo -e "${YELLOW}Changes to be applied:${NC}"
-    git log --oneline HEAD..origin/main
+    git log --oneline "HEAD..origin/$BRANCH_NAME"
     echo ""
     read -p "Apply these updates? (y/N) " -n 1 -r
     echo ""
@@ -107,7 +125,7 @@ fi
 # Pull updates
 echo ""
 echo -e "${BLUE}[1/6] Pulling latest code...${NC}"
-git pull origin main
+git pull origin "$BRANCH_NAME"
 echo -e "${GREEN}Done${NC}"
 
 # Fix script permissions
