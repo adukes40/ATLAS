@@ -3,10 +3,15 @@
 # ATLAS Update Script
 # Updates code from git, fixes permissions, rebuilds frontend, restarts service
 #
-# Usage: sudo ./update.sh
+# Usage: 
+#   sudo ./update.sh            # Interactive mode
+#   sudo ./update.sh [branch]   # Specify branch directly (e.g., sudo ./update.sh dev)
 #
 
 set -e  # Exit on error
+
+# Capture optional branch argument
+BRANCH_ARG=$1
 
 # Colors for output
 RED='\033[0;31m'
@@ -49,6 +54,7 @@ if [ -n "$(git status --porcelain)" ]; then
     echo -e "${YELLOW}Warning: You have uncommitted local changes:${NC}"
     git status --short
     echo ""
+    # Fixed: read -p waits for Enter, clearing the buffer so subsequent reads work
     read -p "Continue anyway? (y/N) " CONFIRM
     echo ""
     if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
@@ -75,21 +81,31 @@ else
 fi
 echo ""
 
-# Update remote origin immediately so we can fetch branches
+# Update remote origin immediately
 git remote set-url origin "$TARGET_REPO"
 
 # ---------------------------------------------------------
-# 2. Select Branch (With Validation)
+# 2. Select Branch
 # ---------------------------------------------------------
-echo -e "${YELLOW}Fetching available branches from remote...${NC}"
-git fetch origin --prune
 
-echo ""
-echo -e "${YELLOW}Select Branch:${NC}"
-read -p "Enter branch name [main]: " BRANCH_INPUT
-BRANCH_NAME=${BRANCH_INPUT:-main}
+# Logic: Use argument if provided, otherwise ask interactively
+if [ -n "$BRANCH_ARG" ]; then
+    BRANCH_NAME="$BRANCH_ARG"
+    echo -e "${GREEN}Using branch from argument: $BRANCH_NAME${NC}"
+else
+    echo -e "${YELLOW}Fetching available branches...${NC}"
+    git fetch origin --prune
+    
+    echo ""
+    echo -e "${YELLOW}Select Branch:${NC}"
+    read -p "Enter branch name [main]: " BRANCH_INPUT
+    BRANCH_NAME=${BRANCH_INPUT:-main}
+fi
 
 # Validate branch existence on remote
+# Note: We perform a fetch first to ensure we know about the branch
+git fetch origin "$BRANCH_NAME" > /dev/null 2>&1 || true
+
 if ! git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
     echo ""
     echo -e "${RED}Error: Branch '$BRANCH_NAME' does not exist on the selected remote.${NC}"
@@ -98,7 +114,7 @@ if ! git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
     exit 1
 fi
 
-echo -e "${GREEN}Selected branch: $BRANCH_NAME${NC}"
+echo -e "${GREEN}Proceeding with branch: $BRANCH_NAME${NC}"
 echo ""
 
 # ---------------------------------------------------------
@@ -154,7 +170,7 @@ chown root:atlas "$BACKEND_DIR/scripts/"*.py 2>/dev/null || true
 chmod 750 "$BACKEND_DIR/scripts/"*.py 2>/dev/null || true
 echo -e "${GREEN}Done${NC}"
 
-# Update Python dependencies if requirements.txt changed
+# Update Python dependencies
 echo ""
 echo -e "${BLUE}[3/6] Checking Python dependencies...${NC}"
 if [ -f "$BACKEND_DIR/requirements.txt" ]; then
@@ -167,7 +183,7 @@ else
     echo -e "${YELLOW}No requirements.txt found, skipping${NC}"
 fi
 
-# Update npm dependencies if package.json changed
+# Update npm dependencies
 echo ""
 echo -e "${BLUE}[4/6] Checking npm dependencies...${NC}"
 cd "$FRONTEND_DIR"
@@ -184,7 +200,7 @@ echo -e "${BLUE}[5/7] Rebuilding frontend...${NC}"
 npm run build --silent
 echo -e "${GREEN}Done${NC}"
 
-# Run database migrations (create any new tables)
+# Run database migrations
 echo ""
 echo -e "${BLUE}[6/7] Running database migrations...${NC}"
 cd "$BACKEND_DIR"
