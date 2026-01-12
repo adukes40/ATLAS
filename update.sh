@@ -50,7 +50,8 @@ if [ -n "$(git status --porcelain)" ]; then
     echo -e "${YELLOW}Warning: You have uncommitted local changes:${NC}"
     git status --short
     echo ""
-    read -p "Continue anyway? (y/N) " REPLY
+    echo -n "Continue anyway? (y/N) "
+    read -n 1 -r REPLY < /dev/tty
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${RED}Update cancelled${NC}"
@@ -58,12 +59,15 @@ if [ -n "$(git status --porcelain)" ]; then
     fi
 fi
 
-# Select Update Source
+# ---------------------------------------------------------
+# 1. Select Update Source
+# ---------------------------------------------------------
 echo -e "${YELLOW}Select Update Source:${NC}"
 echo "  1) Production (Stable) - https://github.com/adukes40/ATLAS.git"
 echo "  2) Development (Testing) - https://github.com/hankscafe/ATLAS.git"
 echo ""
-    read -p "Enter selection [1]: " REPO_SELECT
+echo -n "Enter selection [1]: "
+read -r REPO_SELECT < /dev/tty
 
 if [[ "$REPO_SELECT" == "2" ]]; then
     TARGET_REPO="https://github.com/hankscafe/ATLAS.git"
@@ -74,23 +78,41 @@ else
 fi
 echo ""
 
-# Select Branch
+# Update remote origin
+git remote set-url origin "$TARGET_REPO"
+
+# ---------------------------------------------------------
+# 2. Select Branch (With Validation)
+# ---------------------------------------------------------
+echo -e "${YELLOW}Fetching available branches from remote...${NC}"
+git fetch origin --prune
+
+echo ""
 echo -e "${YELLOW}Select Branch:${NC}"
-read -p "Enter branch name [main]: " BRANCH_INPUT
+echo -n "Enter branch name [main]: "
+read -r BRANCH_INPUT < /dev/tty
 BRANCH_NAME=${BRANCH_INPUT:-main}
+
+# Validate branch existence on remote
+if ! git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
+    echo ""
+    echo -e "${RED}Error: Branch '$BRANCH_NAME' does not exist on the selected remote.${NC}"
+    echo -e "${YELLOW}Available remote branches:${NC}"
+    git branch -r | grep "origin/" | sed 's/origin\///' | sed 's/^/  - /'
+    exit 1
+fi
+
 echo -e "${GREEN}Selected branch: $BRANCH_NAME${NC}"
 echo ""
 
-git remote set-url origin "$TARGET_REPO"
-
-# Fetch and show what will change
-echo -e "${YELLOW}Fetching updates...${NC}"
-git fetch origin "$BRANCH_NAME"
+# ---------------------------------------------------------
+# 3. Switch Branch & Update
+# ---------------------------------------------------------
 
 # Switch branch if needed
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ "$CURRENT_BRANCH" != "$BRANCH_NAME" ]; then
-    echo -e "${BLUE}Switching to branch $BRANCH_NAME...${NC}"
+    echo -e "${BLUE}Switching from $CURRENT_BRANCH to $BRANCH_NAME...${NC}"
     if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
         git checkout "$BRANCH_NAME"
     else
@@ -98,13 +120,15 @@ if [ "$CURRENT_BRANCH" != "$BRANCH_NAME" ]; then
     fi
 fi
 
+# Compare Local vs Remote
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse "origin/$BRANCH_NAME")
 
 if [ "$LOCAL" = "$REMOTE" ]; then
     echo -e "${GREEN}Already up to date!${NC}"
     echo ""
-    read -p "Continue with rebuild anyway? (y/N) " REPLY
+    echo -n "Continue with rebuild anyway? (y/N) "
+    read -n 1 -r REPLY < /dev/tty
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}Nothing to do. Exiting.${NC}"
@@ -114,7 +138,8 @@ else
     echo -e "${YELLOW}Changes to be applied:${NC}"
     git log --oneline "HEAD..origin/$BRANCH_NAME"
     echo ""
-    read -p "Apply these updates? (y/N) " REPLY
+    echo -n "Apply these updates? (y/N) "
+    read -n 1 -r REPLY < /dev/tty
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${RED}Update cancelled${NC}"
