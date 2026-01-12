@@ -1,17 +1,15 @@
 #!/bin/bash
 #
 # ATLAS Update Script
-# Updates code from git, fixes permissions, rebuilds frontend, restarts service
-#
 # Usage: 
 #   sudo ./update.sh            # Interactive mode
-#   sudo ./update.sh [branch]   # Specify branch directly (e.g., sudo ./update.sh dev)
+#   sudo ./update.sh [branch]   # Specify branch (e.g., sudo ./update.sh dev)
 #
 
 set -e  # Exit on error
 
-# Capture optional branch argument
-BRANCH_ARG=$1
+# 1. Capture CLI argument for branch
+CLI_BRANCH=$1
 
 # Colors for output
 RED='\033[0;31m'
@@ -54,8 +52,8 @@ if [ -n "$(git status --porcelain)" ]; then
     echo -e "${YELLOW}Warning: You have uncommitted local changes:${NC}"
     git status --short
     echo ""
-    # Fixed: read -p waits for Enter, clearing the buffer so subsequent reads work
-    read -p "Continue anyway? (y/N) " CONFIRM
+    # CHANGED: Using standard read to clear input buffer (avoids skipping next prompt)
+    read -r -p "Continue anyway? (y/N) " CONFIRM
     echo ""
     if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
         echo -e "${RED}Update cancelled${NC}"
@@ -70,7 +68,9 @@ echo -e "${YELLOW}Select Update Source:${NC}"
 echo "  1) Production (Stable) - https://github.com/adukes40/ATLAS.git"
 echo "  2) Development (Testing) - https://github.com/hankscafe/ATLAS.git"
 echo ""
-read -p "Enter selection [1]: " REPO_SELECT
+
+# Read from terminal explicitly to ensure no skipping
+read -e -p "Enter selection [1]: " REPO_SELECT < /dev/tty
 
 if [[ "$REPO_SELECT" == "2" ]]; then
     TARGET_REPO="https://github.com/hankscafe/ATLAS.git"
@@ -81,29 +81,30 @@ else
 fi
 echo ""
 
-# Update remote origin immediately
+# Update remote origin
 git remote set-url origin "$TARGET_REPO"
 
 # ---------------------------------------------------------
 # 2. Select Branch
 # ---------------------------------------------------------
 
-# Logic: Use argument if provided, otherwise ask interactively
-if [ -n "$BRANCH_ARG" ]; then
-    BRANCH_NAME="$BRANCH_ARG"
-    echo -e "${GREEN}Using branch from argument: $BRANCH_NAME${NC}"
+# Logic: If CLI argument exists, use it. Otherwise, prompt user.
+if [ -n "$CLI_BRANCH" ]; then
+    BRANCH_NAME="$CLI_BRANCH"
+    echo -e "${GREEN}Using branch from command line: $BRANCH_NAME${NC}"
 else
     echo -e "${YELLOW}Fetching available branches...${NC}"
     git fetch origin --prune
     
     echo ""
     echo -e "${YELLOW}Select Branch:${NC}"
-    read -p "Enter branch name [main]: " BRANCH_INPUT
+    # Read from terminal explicitly
+    read -e -p "Enter branch name [main]: " BRANCH_INPUT < /dev/tty
     BRANCH_NAME=${BRANCH_INPUT:-main}
 fi
 
 # Validate branch existence on remote
-# Note: We perform a fetch first to ensure we know about the branch
+# Fetch specific branch first to ensure we have the ref
 git fetch origin "$BRANCH_NAME" > /dev/null 2>&1 || true
 
 if ! git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
@@ -139,7 +140,7 @@ REMOTE=$(git rev-parse "origin/$BRANCH_NAME")
 if [ "$LOCAL" = "$REMOTE" ]; then
     echo -e "${GREEN}Already up to date!${NC}"
     echo ""
-    read -p "Continue with rebuild anyway? (y/N) " CONFIRM
+    read -r -p "Continue with rebuild anyway? (y/N) " CONFIRM
     echo ""
     if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}Nothing to do. Exiting.${NC}"
@@ -149,7 +150,7 @@ else
     echo -e "${YELLOW}Changes to be applied:${NC}"
     git log --oneline "HEAD..origin/$BRANCH_NAME"
     echo ""
-    read -p "Apply these updates? (y/N) " CONFIRM
+    read -r -p "Apply these updates? (y/N) " CONFIRM
     echo ""
     if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
         echo -e "${RED}Update cancelled${NC}"
