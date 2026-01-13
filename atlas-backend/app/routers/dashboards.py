@@ -3,23 +3,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 import json
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.models import (
     IIQAsset, IIQUser, GoogleDevice, NetworkCache, CachedStats,
     MerakiNetwork, MerakiDevice, MerakiSSID, MerakiClient
 )
-from app.auth import get_current_user
 from app.config import get_iiq_config, get_google_config, get_meraki_config
-
-
-def get_user_identifier(request: Request) -> str:
-    """Get rate limit key from user email or IP."""
-    user = get_current_user(request)
-    if user and user.get("email"):
-        return user.get("email")
-    return get_remote_address(request)
+from app.utils import get_user_identifier
 
 
 limiter = Limiter(key_func=get_user_identifier)

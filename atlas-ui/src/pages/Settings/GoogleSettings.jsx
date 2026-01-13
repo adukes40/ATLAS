@@ -1,62 +1,44 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import axios from 'axios'
 import { Cloud, Save, TestTube, Loader2, CheckCircle, XCircle, AlertCircle, Upload } from 'lucide-react'
 import SyncPanel from '../../components/SyncPanel'
+import useServiceSettings from '../../hooks/useServiceSettings'
 
 export default function GoogleSettings() {
-  const [settings, setSettings] = useState({
-    google_admin_email: '',
-  })
   const [credentialsFile, setCredentialsFile] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState(null)
-  const [hasCredentials, setHasCredentials] = useState(false)
-  const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(null)
 
-  // Fetch current settings
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const res = await axios.get('/api/settings')
-        const data = res.data.settings || {}
-        setSettings({
-          google_admin_email: data.google_admin_email || '',
-        })
-        setHasCredentials(data.google_credentials_json?.configured || false)
-      } catch (err) {
-        setError('Failed to load settings')
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchSettings()
-  }, [])
+  const {
+    settings,
+    loading,
+    saving,
+    testing,
+    testResult,
+    hasSecrets,
+    error,
+    success,
+    handleChange,
+    handleTest,
+    setSettings
+  } = useServiceSettings('google', {
+    fields: {
+      google_admin_email: ''
+    },
+    secretFields: ['google_credentials_json'],
+    mapResponse: (data) => ({
+      google_admin_email: data.google_admin_email || ''
+    })
+  })
 
-  // Handle input change
-  const handleChange = (e) => {
-    const { name, value } = e.target
-    setSettings(prev => ({ ...prev, [name]: value }))
-    setSuccess(null)
-    setTestResult(null)
-  }
-
-  // Handle file selection
+  // Handle file selection (special handling for credentials JSON)
   const handleFileSelect = (e) => {
     const file = e.target.files[0]
     if (file) {
       const reader = new FileReader()
       reader.onload = (event) => {
         try {
-          // Validate it's valid JSON
           JSON.parse(event.target.result)
           setCredentialsFile(event.target.result)
-          setSuccess(null)
-          setTestResult(null)
         } catch (err) {
-          setError('Invalid JSON file')
           setCredentialsFile(null)
         }
       }
@@ -64,45 +46,20 @@ export default function GoogleSettings() {
     }
   }
 
-  // Save settings
+  // Custom save handler that includes credentials file
   const handleSave = async () => {
-    setSaving(true)
-    setError(null)
-    setSuccess(null)
+    const toSave = {}
+    if (settings.google_admin_email) toSave.google_admin_email = settings.google_admin_email
+    if (credentialsFile) toSave.google_credentials_json = credentialsFile
 
     try {
-      const toSave = {}
-      if (settings.google_admin_email) toSave.google_admin_email = settings.google_admin_email
-      if (credentialsFile) toSave.google_credentials_json = credentialsFile
-
       await axios.post('/api/settings', { settings: toSave })
-      setSuccess('Settings saved successfully')
       if (credentialsFile) {
-        setHasCredentials(true)
         setCredentialsFile(null)
       }
+      window.location.reload() // Refresh to show updated status
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to save settings')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Test connection
-  const handleTest = async () => {
-    setTesting(true)
-    setTestResult(null)
-
-    try {
-      const res = await axios.post('/api/settings/test/google')
-      setTestResult(res.data)
-    } catch (err) {
-      setTestResult({
-        success: false,
-        message: err.response?.data?.detail || 'Test failed'
-      })
-    } finally {
-      setTesting(false)
+      console.error('Failed to save settings:', err)
     }
   }
 
@@ -152,7 +109,7 @@ export default function GoogleSettings() {
         <div>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
             Service Account Credentials (JSON)
-            {hasCredentials && (
+            {hasSecrets.google_credentials_json && (
               <span className="ml-2 text-xs text-emerald-600 dark:text-emerald-400">
                 (configured)
               </span>
@@ -180,7 +137,7 @@ export default function GoogleSettings() {
                   ) : (
                     <>
                       <Upload className="h-5 w-5" />
-                      <span>{hasCredentials ? 'Upload new credentials to replace' : 'Upload credentials JSON file'}</span>
+                      <span>{hasSecrets.google_credentials_json ? 'Upload new credentials to replace' : 'Upload credentials JSON file'}</span>
                     </>
                   )}
                 </div>

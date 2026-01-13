@@ -2,90 +2,28 @@
 Reports Router - Pre-canned and custom report generation with export capabilities.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, desc, asc, cast, Float, literal_column
 from datetime import datetime
 from typing import Optional, List
-import csv
-import io
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.models import IIQAsset, IIQUser, GoogleDevice, GoogleUser, NetworkCache, MerakiDevice, MerakiNetwork, MerakiSSID
-from app.auth import get_current_user
-
-
-def get_user_identifier(request: Request) -> str:
-    """Get rate limit key from user email or IP."""
-    user = get_current_user(request)
-    if user and user.get("email"):
-        return user.get("email")
-    return get_remote_address(request)
+from app.utils import (
+    get_user_identifier,
+    parse_multi_filter,
+    apply_filter,
+    apply_sorting,
+    paginate,
+    calculate_pages,
+    stream_csv
+)
 
 
 limiter = Limiter(key_func=get_user_identifier)
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
-
-
-# =============================================================================
-# UTILITY FUNCTIONS
-# =============================================================================
-
-def apply_sorting(query, model, sort_by: str, order: str):
-    """Apply sorting to a query based on column name and direction."""
-    if not sort_by:
-        return query
-
-    column = getattr(model, sort_by, None)
-    if column is None:
-        return query
-
-    if order.lower() == "desc":
-        return query.order_by(desc(column))
-    return query.order_by(asc(column))
-
-
-def paginate(query, page: int, limit: int):
-    """Apply pagination to a query."""
-    offset = page * limit
-    return query.offset(offset).limit(limit)
-
-
-def parse_multi_filter(value: Optional[str]) -> Optional[List[str]]:
-    """Parse comma-separated filter values into a list."""
-    if not value:
-        return None
-    values = [v.strip() for v in value.split(',') if v.strip()]
-    return values if values else None
-
-
-def stream_csv(data: List[dict], columns: List[str], filename: str):
-    """Generate a CSV streaming response."""
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=columns, extrasaction='ignore')
-    writer.writeheader()
-
-    for row in data:
-        # Convert datetime objects to strings
-        clean_row = {}
-        for k, v in row.items():
-            if isinstance(v, datetime):
-                clean_row[k] = v.strftime("%Y-%m-%d %H:%M:%S")
-            elif v is None:
-                clean_row[k] = ""
-            else:
-                clean_row[k] = v
-        writer.writerow(clean_row)
-
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
 
 
 # =============================================================================

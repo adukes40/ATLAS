@@ -1,132 +1,19 @@
-import { useState, useEffect, useCallback } from 'react'
-import axios from 'axios'
 import ReportTable from '../../components/ReportTable'
+import useReportQuery from '../../hooks/useReportQuery'
 
 export default function AueReport() {
-  const [data, setData] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [total, setTotal] = useState(0)
-  const [totalPages, setTotalPages] = useState(0)
-  const [filterOptions, setFilterOptions] = useState({})
-
-  // Query state
-  const [filters, setFilters] = useState({
-    aue_year: null,
-    iiq_status: null,
-    google_status: null,
-    model: null
+  const report = useReportQuery('aue-eol', {
+    defaultFilters: {
+      aue_year: null,
+      iiq_status: null,
+      google_status: null,
+      model: null
+    },
+    defaultSort: 'aue_date',
+    defaultOrder: 'asc',
+    hasSearch: false,
+    exportFilename: 'aue_eol_report'
   })
-  const [sortColumn, setSortColumn] = useState('aue_date')
-  const [sortOrder, setSortOrder] = useState('asc')
-  const [page, setPage] = useState(0)
-  const [limit, setLimit] = useState(100)
-
-  // Fetch filter options
-  useEffect(() => {
-    const fetchOptions = async () => {
-      try {
-        const res = await axios.get('/api/reports/filters/options')
-        setFilterOptions(res.data)
-      } catch (err) {
-        console.error('Failed to fetch filter options:', err)
-      }
-    }
-    fetchOptions()
-  }, [])
-
-  // Helper to append filter (handles arrays and exclude mode)
-  const appendFilter = (params, key, value) => {
-    if (!value) return
-
-    // Handle new format: { values: [], exclude: boolean }
-    if (value.values && Array.isArray(value.values) && value.values.length > 0) {
-      params.append(key, value.values.join(','))
-      if (value.exclude) {
-        params.append(`${key}_exclude`, 'true')
-      }
-    }
-    // Handle legacy array format
-    else if (Array.isArray(value) && value.length > 0) {
-      params.append(key, value.join(','))
-    }
-    // Handle simple string
-    else if (typeof value === 'string') {
-      params.append(key, value)
-    }
-  }
-
-  // Fetch report data
-  const fetchData = useCallback(async () => {
-    setLoading(true)
-    try {
-      const params = new URLSearchParams()
-      appendFilter(params, 'aue_year', filters.aue_year)
-      appendFilter(params, 'iiq_status', filters.iiq_status)
-      appendFilter(params, 'google_status', filters.google_status)
-      appendFilter(params, 'model', filters.model)
-      params.append('sort', sortColumn)
-      params.append('order', sortOrder)
-      params.append('page', page)
-      params.append('limit', limit)
-
-      const res = await axios.get(`/api/reports/aue-eol?${params}`)
-      setData(res.data.data)
-      setTotal(res.data.total)
-      setTotalPages(res.data.pages)
-    } catch (err) {
-      console.error('Failed to fetch AUE report:', err)
-    } finally {
-      setLoading(false)
-    }
-  }, [filters, sortColumn, sortOrder, page, limit])
-
-  useEffect(() => {
-    fetchData()
-  }, [fetchData])
-
-  // Handle filter change
-  const handleFilterChange = (key, value) => {
-    setFilters(prev => ({ ...prev, [key]: value }))
-    setPage(0)
-  }
-
-  // Handle sort
-  const handleSort = (column, order) => {
-    setSortColumn(column)
-    setSortOrder(order)
-    setPage(0)
-  }
-
-  // Handle limit change
-  const handleLimitChange = (newLimit) => {
-    setLimit(newLimit)
-    setPage(0)
-  }
-
-  // Handle CSV export
-  const handleExportCSV = async () => {
-    const params = new URLSearchParams()
-    appendFilter(params, 'aue_year', filters.aue_year)
-    appendFilter(params, 'iiq_status', filters.iiq_status)
-    appendFilter(params, 'google_status', filters.google_status)
-    appendFilter(params, 'model', filters.model)
-
-    try {
-      const res = await axios.get(`/api/reports/aue-eol/export/csv?${params}`, {
-        responseType: 'blob'
-      })
-      const url = window.URL.createObjectURL(new Blob([res.data]))
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', `aue_eol_report_${new Date().toISOString().slice(0, 10)}.csv`)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-    } catch (err) {
-      console.error('Failed to export CSV:', err)
-      alert('Failed to export CSV')
-    }
-  }
 
   // Get expiration status styling
   const getExpirationStyle = (expStatus) => {
@@ -162,32 +49,32 @@ export default function AueReport() {
 
   // Filter definitions
   const filterDefs = [
-    { key: 'aue_year', label: 'AUE Year', options: filterOptions.aue_years || [], placeholder: 'All Years' },
-    { key: 'iiq_status', label: 'IIQ Status', options: filterOptions.iiq_statuses || [], placeholder: 'All IIQ Statuses' },
-    { key: 'google_status', label: 'Google Status', options: filterOptions.google_statuses || [], placeholder: 'All Google Statuses' },
-    { key: 'model', label: 'Model', options: filterOptions.models || [], placeholder: 'All Models' }
+    { key: 'aue_year', label: 'AUE Year', options: report.filterOptions.aue_years || [], placeholder: 'All Years' },
+    { key: 'iiq_status', label: 'IIQ Status', options: report.filterOptions.iiq_statuses || [], placeholder: 'All IIQ Statuses' },
+    { key: 'google_status', label: 'Google Status', options: report.filterOptions.google_statuses || [], placeholder: 'All Google Statuses' },
+    { key: 'model', label: 'Model', options: report.filterOptions.models || [], placeholder: 'All Models' }
   ]
 
   return (
     <ReportTable
       title="AUE / End-of-Life Report"
       description="Chromebooks sorted by Auto Update Expiration date"
-      data={data}
+      data={report.data}
       columns={columns}
       filters={filterDefs}
-      filterValues={filters}
-      onFilterChange={handleFilterChange}
-      sortColumn={sortColumn}
-      sortOrder={sortOrder}
-      onSort={handleSort}
-      page={page}
-      totalPages={totalPages}
-      total={total}
-      onPageChange={setPage}
-      limit={limit}
-      onLimitChange={handleLimitChange}
-      loading={loading}
-      onExportCSV={handleExportCSV}
+      filterValues={report.filters}
+      onFilterChange={report.handleFilterChange}
+      sortColumn={report.sortColumn}
+      sortOrder={report.sortOrder}
+      onSort={report.handleSort}
+      page={report.page}
+      totalPages={report.totalPages}
+      total={report.total}
+      onPageChange={report.setPage}
+      limit={report.limit}
+      onLimitChange={report.handleLimitChange}
+      loading={report.loading}
+      onExportCSV={report.handleExportCSV}
       emptyMessage="No devices found with AUE data"
     />
   )

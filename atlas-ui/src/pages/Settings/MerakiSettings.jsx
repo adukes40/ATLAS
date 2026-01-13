@@ -1,90 +1,31 @@
-import { useState, useEffect } from 'react'
-import axios from 'axios'
 import { Wifi, Save, TestTube, Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import SyncPanel from '../../components/SyncPanel'
+import useServiceSettings from '../../hooks/useServiceSettings'
 
 export default function MerakiSettings() {
-  const [settings, setSettings] = useState({
-    meraki_api_key: '',
-    meraki_org_id: '',
+  const {
+    settings,
+    loading,
+    saving,
+    testing,
+    testResult,
+    hasSecrets,
+    error,
+    success,
+    handleChange,
+    handleSave,
+    handleTest
+  } = useServiceSettings('meraki', {
+    fields: {
+      meraki_api_key: '',
+      meraki_org_id: ''
+    },
+    secretFields: ['meraki_api_key'],
+    mapResponse: (data) => ({
+      meraki_api_key: '',
+      meraki_org_id: data.meraki_org_id || ''
+    })
   })
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState(null)
-  const [hasApiKey, setHasApiKey] = useState(false)
-  const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(null)
-
-  // Fetch current settings
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const res = await axios.get('/api/settings')
-        const data = res.data.settings || {}
-        setSettings({
-          meraki_api_key: '',
-          meraki_org_id: data.meraki_org_id || '',
-        })
-        setHasApiKey(data.meraki_api_key?.configured || false)
-      } catch (err) {
-        setError('Failed to load settings')
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchSettings()
-  }, [])
-
-  // Handle input change
-  const handleChange = (e) => {
-    const { name, value } = e.target
-    setSettings(prev => ({ ...prev, [name]: value }))
-    setSuccess(null)
-    setTestResult(null)
-  }
-
-  // Save settings
-  const handleSave = async () => {
-    setSaving(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      const toSave = {}
-      if (settings.meraki_api_key) toSave.meraki_api_key = settings.meraki_api_key
-      if (settings.meraki_org_id) toSave.meraki_org_id = settings.meraki_org_id
-
-      await axios.post('/api/settings', { settings: toSave })
-      setSuccess('Settings saved successfully')
-      if (settings.meraki_api_key) {
-        setHasApiKey(true)
-        setSettings(prev => ({ ...prev, meraki_api_key: '' }))
-      }
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to save settings')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Test connection
-  const handleTest = async () => {
-    setTesting(true)
-    setTestResult(null)
-
-    try {
-      const res = await axios.post('/api/settings/test/meraki')
-      setTestResult(res.data)
-    } catch (err) {
-      setTestResult({
-        success: false,
-        message: err.response?.data?.detail || 'Test failed'
-      })
-    } finally {
-      setTesting(false)
-    }
-  }
 
   if (loading) {
     return (
@@ -132,7 +73,7 @@ export default function MerakiSettings() {
         <div>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
             API Key
-            {hasApiKey && (
+            {hasSecrets.meraki_api_key && (
               <span className="ml-2 text-xs text-emerald-600 dark:text-emerald-400">
                 (configured)
               </span>
@@ -143,7 +84,7 @@ export default function MerakiSettings() {
             name="meraki_api_key"
             value={settings.meraki_api_key}
             onChange={handleChange}
-            placeholder={hasApiKey ? "Enter new key to replace" : "Enter Meraki API key"}
+            placeholder={hasSecrets.meraki_api_key ? "Enter new key to replace" : "Enter Meraki API key"}
             className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -172,7 +113,7 @@ export default function MerakiSettings() {
         {/* Actions */}
         <div className="flex items-center gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
           <button
-            onClick={handleSave}
+            onClick={() => handleSave()}
             disabled={saving}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >

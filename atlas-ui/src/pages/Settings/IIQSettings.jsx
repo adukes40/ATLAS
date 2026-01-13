@@ -1,94 +1,33 @@
-import { useState, useEffect } from 'react'
-import axios from 'axios'
 import { Database, Save, TestTube, Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import SyncPanel from '../../components/SyncPanel'
+import useServiceSettings from '../../hooks/useServiceSettings'
 
 export default function IIQSettings() {
-  const [settings, setSettings] = useState({
-    iiq_url: '',
-    iiq_token: '',
-    iiq_site_id: '',
+  const {
+    settings,
+    loading,
+    saving,
+    testing,
+    testResult,
+    hasSecrets,
+    error,
+    success,
+    handleChange,
+    handleSave,
+    handleTest
+  } = useServiceSettings('iiq', {
+    fields: {
+      iiq_url: '',
+      iiq_token: '',
+      iiq_site_id: ''
+    },
+    secretFields: ['iiq_token'],
+    mapResponse: (data) => ({
+      iiq_url: data.iiq_url || '',
+      iiq_token: '', // Never expose token
+      iiq_site_id: data.iiq_site_id || ''
+    })
   })
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState(null)
-  const [hasToken, setHasToken] = useState(false)
-  const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(null)
-
-  // Fetch current settings
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const res = await axios.get('/api/settings')
-        const data = res.data.settings || {}
-        setSettings({
-          iiq_url: data.iiq_url || '',
-          iiq_token: '', // Never expose token
-          iiq_site_id: data.iiq_site_id || '',
-        })
-        setHasToken(data.iiq_token?.configured || false)
-      } catch (err) {
-        setError('Failed to load settings')
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchSettings()
-  }, [])
-
-  // Handle input change
-  const handleChange = (e) => {
-    const { name, value } = e.target
-    setSettings(prev => ({ ...prev, [name]: value }))
-    setSuccess(null)
-    setTestResult(null)
-  }
-
-  // Save settings
-  const handleSave = async () => {
-    setSaving(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      // Only send non-empty values
-      const toSave = {}
-      if (settings.iiq_url) toSave.iiq_url = settings.iiq_url
-      if (settings.iiq_token) toSave.iiq_token = settings.iiq_token
-      if (settings.iiq_site_id) toSave.iiq_site_id = settings.iiq_site_id
-
-      await axios.post('/api/settings', { settings: toSave })
-      setSuccess('Settings saved successfully')
-      if (settings.iiq_token) {
-        setHasToken(true)
-        setSettings(prev => ({ ...prev, iiq_token: '' }))
-      }
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to save settings')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Test connection
-  const handleTest = async () => {
-    setTesting(true)
-    setTestResult(null)
-
-    try {
-      const res = await axios.post('/api/settings/test/iiq')
-      setTestResult(res.data)
-    } catch (err) {
-      setTestResult({
-        success: false,
-        message: err.response?.data?.detail || 'Test failed'
-      })
-    } finally {
-      setTesting(false)
-    }
-  }
 
   if (loading) {
     return (
@@ -154,7 +93,7 @@ export default function IIQSettings() {
         <div>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
             API Token
-            {hasToken && (
+            {hasSecrets.iiq_token && (
               <span className="ml-2 text-xs text-emerald-600 dark:text-emerald-400">
                 (configured)
               </span>
@@ -165,7 +104,7 @@ export default function IIQSettings() {
             name="iiq_token"
             value={settings.iiq_token}
             onChange={handleChange}
-            placeholder={hasToken ? "Enter new token to replace" : "Enter API token"}
+            placeholder={hasSecrets.iiq_token ? "Enter new token to replace" : "Enter API token"}
             className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -191,7 +130,7 @@ export default function IIQSettings() {
         {/* Actions */}
         <div className="flex items-center gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
           <button
-            onClick={handleSave}
+            onClick={() => handleSave()}
             disabled={saving}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
