@@ -487,7 +487,7 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=$ATLAS_DIR/logs
+ReadWritePaths=$ATLAS_DIR/atlas-backend $ATLAS_DIR/logs
 
 [Install]
 WantedBy=multi-user.target
