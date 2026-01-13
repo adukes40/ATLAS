@@ -724,6 +724,7 @@ class IIQConnector:
         total_fetched = 0
         total_rows = None
         page_size = 100
+        cutoff_date = "2025-01-01T00:00:00Z"
         # With 56K tickets at 100/page = ~562 API calls, should take ~5-10 minutes
 
         while True:
@@ -733,7 +734,13 @@ class IIQConnector:
                 resp = requests.post(
                     f"{self.base_url}/api/v1.0/tickets?$p={page_index}&$s=100",
                     headers=self.headers,
-                    json={"OnlyShowDeleted": False},
+                    json={
+                        "OnlyShowDeleted": False,
+                        "Filters": [{
+                            "Facet": "CreatedDate",
+                            "Min": cutoff_date
+                        }]
+                    },
                     timeout=30
                 )
                 resp.raise_for_status()
@@ -754,6 +761,11 @@ class IIQConnector:
                     try:
                         ticket_id = raw_data.get("TicketId")
                         if not ticket_id:
+                            continue
+
+                        # Double check date client-side
+                        created_date = raw_data.get("CreatedDate")
+                        if created_date and created_date < "2025-01-01":
                             continue
 
                         # Extract nested objects (some may not exist or be different types)
