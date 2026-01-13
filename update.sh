@@ -164,20 +164,57 @@ fi
 
 # Pull updates
 echo ""
-echo -e "${BLUE}[1/6] Pulling latest code...${NC}"
+echo -e "${BLUE}[1/9] Pulling latest code...${NC}"
 git pull origin "$BRANCH_NAME"
 echo -e "${GREEN}Done${NC}"
 
 # Fix script permissions
 echo ""
-echo -e "${BLUE}[2/6] Fixing script permissions...${NC}"
+echo -e "${BLUE}[2/9] Fixing script permissions...${NC}"
 chown root:atlas "$BACKEND_DIR/scripts/"*.py 2>/dev/null || true
 chmod 750 "$BACKEND_DIR/scripts/"*.py 2>/dev/null || true
 echo -e "${GREEN}Done${NC}"
 
+# Ensure logs directory exists
+echo ""
+echo -e "${BLUE}[3/9] Ensuring logs directory exists...${NC}"
+if [ ! -d "$ATLAS_ROOT/logs" ]; then
+    mkdir -p "$ATLAS_ROOT/logs"
+    echo -e "${YELLOW}Created $ATLAS_ROOT/logs${NC}"
+fi
+chown atlas:atlas "$ATLAS_ROOT/logs"
+chmod 755 "$ATLAS_ROOT/logs"
+echo -e "${GREEN}Done${NC}"
+
+# Fix systemd service if needed (ensure proper ReadWritePaths)
+echo ""
+echo -e "${BLUE}[4/9] Checking systemd service configuration...${NC}"
+SYSTEMD_FILE="/etc/systemd/system/atlas.service"
+if [ -f "$SYSTEMD_FILE" ]; then
+    # Check if ReadWritePaths includes both required paths
+    if grep -q "ReadWritePaths=" "$SYSTEMD_FILE"; then
+        CURRENT_PATHS=$(grep "ReadWritePaths=" "$SYSTEMD_FILE")
+        if [[ ! "$CURRENT_PATHS" =~ "atlas-backend" ]] || [[ ! "$CURRENT_PATHS" =~ "logs" ]]; then
+            echo -e "${YELLOW}Updating ReadWritePaths in systemd service...${NC}"
+            sed -i 's|ReadWritePaths=.*|ReadWritePaths=/opt/atlas/atlas-backend /opt/atlas/logs|' "$SYSTEMD_FILE"
+            systemctl daemon-reload
+            echo -e "${GREEN}Systemd service updated${NC}"
+        else
+            echo -e "${GREEN}Systemd configuration OK${NC}"
+        fi
+    else
+        echo -e "${YELLOW}Adding ReadWritePaths to systemd service...${NC}"
+        sed -i '/\[Service\]/a ReadWritePaths=/opt/atlas/atlas-backend /opt/atlas/logs' "$SYSTEMD_FILE"
+        systemctl daemon-reload
+        echo -e "${GREEN}Systemd service updated${NC}"
+    fi
+else
+    echo -e "${YELLOW}Systemd service file not found, skipping${NC}"
+fi
+
 # Update Python dependencies
 echo ""
-echo -e "${BLUE}[3/6] Checking Python dependencies...${NC}"
+echo -e "${BLUE}[5/9] Checking Python dependencies...${NC}"
 if [ -f "$BACKEND_DIR/requirements.txt" ]; then
     cd "$BACKEND_DIR"
     source venv/bin/activate
@@ -190,7 +227,7 @@ fi
 
 # Update npm dependencies
 echo ""
-echo -e "${BLUE}[4/6] Checking npm dependencies...${NC}"
+echo -e "${BLUE}[6/9] Checking npm dependencies...${NC}"
 cd "$FRONTEND_DIR"
 if [ -f "package.json" ]; then
     npm install --silent
@@ -201,13 +238,13 @@ fi
 
 # Rebuild frontend
 echo ""
-echo -e "${BLUE}[5/7] Rebuilding frontend...${NC}"
+echo -e "${BLUE}[7/9] Rebuilding frontend...${NC}"
 npm run build --silent
 echo -e "${GREEN}Done${NC}"
 
 # Run database migrations
 echo ""
-echo -e "${BLUE}[6/7] Running database migrations...${NC}"
+echo -e "${BLUE}[8/9] Running database migrations...${NC}"
 cd "$BACKEND_DIR"
 source venv/bin/activate
 python3 -c "
@@ -223,7 +260,7 @@ echo -e "${GREEN}Done${NC}"
 
 # Restart service
 echo ""
-echo -e "${BLUE}[7/7] Restarting ATLAS service...${NC}"
+echo -e "${BLUE}[9/9] Restarting ATLAS service...${NC}"
 if systemctl is-active --quiet atlas.service; then
     systemctl restart atlas.service
     sleep 2
