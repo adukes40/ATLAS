@@ -160,6 +160,8 @@ def run_sync_script(source: str, trigger: str = "manual"):
     if not script_path:
         return
 
+    log_file_path = f"/opt/atlas/logs/{source}_sync.log"
+
     try:
         # Set UTF-8 encoding environment for proper Unicode handling
         env = {
@@ -172,15 +174,18 @@ def run_sync_script(source: str, trigger: str = "manual"):
 
         print(f"[run_sync_script] Starting {source} sync: {script_path}")
 
-        # Start the sync script as a subprocess (fire-and-forget)
-        process = subprocess.Popen(
-            ["/opt/atlas/atlas-backend/venv/bin/python3", script_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd="/opt/atlas/atlas-backend",
-            env=env,
-            start_new_session=True  # Detach from parent process group
-        )
+        # Open log file to prevent subprocess deadlock (PIPE buffer overflow)
+        # and to capture output consistent with cron jobs
+        with open(log_file_path, "a") as log_file:
+            # Start the sync script as a subprocess (fire-and-forget)
+            process = subprocess.Popen(
+                ["/opt/atlas/atlas-backend/venv/bin/python3", script_path],
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                cwd="/opt/atlas/atlas-backend",
+                env=env,
+                start_new_session=True  # Detach from parent process group
+            )
 
         print(f"[run_sync_script] {source} subprocess started with PID {process.pid}")
 
