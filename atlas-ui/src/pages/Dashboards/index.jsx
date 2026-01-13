@@ -133,59 +133,73 @@ export default function DashboardsIndex() {
       ) : stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {/* IIQ Assets */}
-          {stats.iiq?.configured && (
-            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                  <Monitor className="h-4 w-4 text-blue-500" />
-                </div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">IIQ Assets</span>
+          <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                <Monitor className="h-4 w-4 text-blue-500" />
               </div>
-              <p className="text-3xl font-bold text-slate-800 dark:text-slate-100">{stats.iiq?.total_assets}</p>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">IIQ Assets</span>
             </div>
-          )}
+            {stats.iiq?.configured ? (
+              <p className="text-3xl font-bold text-slate-800 dark:text-slate-100">{stats.iiq?.total_assets}</p>
+            ) : (
+              <p className="text-sm font-medium text-slate-400 italic">No Data Synced</p>
+            )}
+          </div>
 
           {/* Assigned (IIQ) */}
-          {stats.iiq?.configured && (
-            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                  <Users className="h-4 w-4 text-blue-500" />
-                </div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Assigned</span>
+          <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                <Users className="h-4 w-4 text-blue-500" />
               </div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Assigned</span>
+            </div>
+            {stats.iiq?.configured ? (
+              <>
               <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{stats.iiq?.assigned}</p>
               <p className="text-xs text-slate-400 mt-1">{stats.iiq?.unassigned} unassigned</p>
-            </div>
-          )}
+              </>
+            ) : (
+              <p className="text-sm font-medium text-slate-400 italic">No Data Synced</p>
+            )}
+          </div>
 
           {/* Google Active */}
-          {stats.google?.configured && (
-            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('google')}`}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
-                  <CheckCircle className="h-4 w-4 text-emerald-500" />
-                </div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Google Active</span>
+          <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('google')}`}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
+                <CheckCircle className="h-4 w-4 text-emerald-500" />
               </div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Google Active</span>
+            </div>
+            {stats.google?.configured ? (
+              <>
               <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{stats.google?.active}</p>
               <p className="text-xs text-slate-400 mt-1">of {stats.google?.total_devices} in Google</p>
-            </div>
-          )}
+              </>
+            ) : (
+              <p className="text-sm font-medium text-slate-400 italic">No Data Synced</p>
+            )}
+          </div>
 
           {/* AUE Expired (Google) */}
-          {stats.google?.configured && (
-            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('google')}`}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
-                  <AlertTriangle className="h-4 w-4 text-red-500" />
-                </div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Expired AUE</span>
+          <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('google')}`}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
               </div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Expired AUE</span>
+            </div>
+            {stats.google?.configured ? (
+              <>
               <p className="text-3xl font-bold text-red-600 dark:text-red-400">{stats.google?.aue_expired}</p>
               <p className="text-xs text-slate-400 mt-1">past end of life</p>
-            </div>
-          )}
+              </>
+            ) : (
+              <p className="text-sm font-medium text-slate-400 italic">No Data Synced</p>
+            )}
+          </div>
         </div>
       )}
 
