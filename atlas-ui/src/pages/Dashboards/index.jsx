@@ -229,12 +229,12 @@ export default function DashboardsIndex() {
                   {isConfigured && dashboard.id === 'meraki' ? (
                     <div className="text-right flex flex-col items-end">
                       <div className="flex items-baseline gap-1">
-                        <span className={`text-xl font-bold ${colors.stat}`}>{dashboard.apCount || 0}</span>
                         <span className="text-[10px] text-slate-400 uppercase">APs</span>
+                        <span className={`text-xl font-bold ${colors.stat}`}>{dashboard.apCount || 0}</span>
                       </div>
                       <div className="flex items-baseline gap-1">
-                        <span className={`text-xl font-bold ${colors.stat}`}>{dashboard.switchCount || 0}</span>
                         <span className="text-[10px] text-slate-400 uppercase">Switches</span>
+                        <span className={`text-xl font-bold ${colors.stat}`}>{dashboard.switchCount || 0}</span>
                       </div>
                     </div>
                   ) : isConfigured && dashboard.stat !== undefined && (
