@@ -129,7 +129,11 @@ function AppLayout() {
         </main>
 
         {/* Footer */}
-        <Footer className={contentWidthClass} />
+        <Footer 
+          className={contentWidthClass} 
+          districtName={districtSettings.name}
+          supportEmail={districtSettings.email}
+        />
       </div>
     </div>
   )

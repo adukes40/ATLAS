@@ -1,12 +1,20 @@
-import { Github, GitBranch } from 'lucide-react'
+import { Github, GitBranch, Mail } from 'lucide-react'
 
-export default function Footer({ className = '' }) {
+export default function Footer({ className = '', districtName, supportEmail }) {
   return (
     <footer className={`mt-12 py-6 border-t border-slate-200 dark:border-slate-800 ${className}`}>
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-slate-500 dark:text-slate-400">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-slate-700 dark:text-slate-200">ATLAS</span>
-          <span>&copy; {new Date().getFullYear()} Caesar Rodney School District</span>
+        <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-6">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-700 dark:text-slate-200">ATLAS</span>
+            <span>&copy; {new Date().getFullYear()} {districtName || 'Caesar Rodney School District'}</span>
+          </div>
+          {supportEmail && (
+            <a href={`mailto:${supportEmail}`} className="flex items-center gap-1.5 hover:text-slate-800 dark:hover:text-slate-200 transition-colors">
+              <Mail className="h-3.5 w-3.5" />
+              <span>Contact Support</span>
+            </a>
+          )}
         </div>
         
         <div className="flex flex-col items-center text-center">
