@@ -74,12 +74,13 @@ def get_overview_stats(request: Request, db: Session = Depends(get_db)):
         GoogleDevice.aue_date.ilike('2024%')
     ).scalar() or 0
 
-    # Network Stats (primary key is mac_address)
-    network_total = db.query(func.count(NetworkCache.mac_address)).scalar() or 0
-
     # Network Stats - Devices (APs + Switches)
-    meraki_devices_count = db.query(func.count(MerakiDevice.serial)).filter(
-        MerakiDevice.product_type.in_(['wireless', 'switch'])
+    meraki_aps_count = db.query(func.count(MerakiDevice.serial)).filter(
+        MerakiDevice.product_type == 'wireless'
+    ).scalar() or 0
+
+    meraki_switches_count = db.query(func.count(MerakiDevice.serial)).filter(
+        MerakiDevice.product_type == 'switch'
     ).scalar() or 0
 
     # Check configurations
@@ -108,8 +109,9 @@ def get_overview_stats(request: Request, db: Session = Depends(get_db)):
         },
         "network": {
             "configured": meraki_configured,
-            "cached_clients": meraki_devices_count,
-            "total_devices": meraki_devices_count
+            "ap_count": meraki_aps_count,
+            "switch_count": meraki_switches_count,
+            "total_devices": meraki_aps_count + meraki_switches_count
         }
     }
 
