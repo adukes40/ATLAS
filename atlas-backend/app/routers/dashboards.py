@@ -108,7 +108,7 @@ def get_overview_stats(request: Request, db: Session = Depends(get_db)):
         },
         "network": {
             "configured": meraki_configured,
-            "cached_clients": network_total,
+            "cached_clients": meraki_devices_count,
             "total_devices": meraki_devices_count
         }
     }
