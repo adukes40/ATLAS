@@ -15,6 +15,7 @@ import UtilitiesIndex from './pages/Utilities/index'
 import SettingsIndex from './pages/Settings/index'
 import Login from './pages/Login'
 import PasswordChangeModal from './components/PasswordChangeModal'
+import Footer from './components/Footer'
 
 // Layout component that handles responsive width based on route
 function AppLayout() {
@@ -128,11 +129,7 @@ function AppLayout() {
         </main>
 
         {/* Footer */}
-        <footer className={`${contentWidthClass} py-8 border-t border-slate-200 dark:border-slate-800 text-center`}>
-          <p className="text-[10px] font-bold text-slate-400 dark:text-slate-600 uppercase tracking-[0.2em]">
-            ATLAS Asset, Telemetry, Location, & Analytics System
-          </p>
-        </footer>
+        <Footer className={contentWidthClass} />
       </div>
     </div>
   )
