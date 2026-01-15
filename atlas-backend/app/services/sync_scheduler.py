@@ -9,9 +9,11 @@ import asyncio
 import threading
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from app.database import SessionLocal
 from app.models import SyncSchedule, SyncLog, SyncNotification
+from app.services.settings_service import get_setting
 
 
 # Global reference to the scheduler task
@@ -28,8 +30,15 @@ def check_and_run_scheduled_syncs():
 
     db = SessionLocal()
     try:
-        current_hour = datetime.utcnow().hour
-        current_minute = datetime.utcnow().minute
+        # Get configured timezone (defaults to Eastern if not set)
+        schedule_timezone = get_setting(db, 'schedule_timezone') or 'America/New_York'
+
+        # Convert current UTC time to configured timezone
+        utc_now = datetime.utcnow().replace(tzinfo=ZoneInfo('UTC'))
+        local_now = utc_now.astimezone(ZoneInfo(schedule_timezone))
+
+        current_hour = local_now.hour
+        current_minute = local_now.minute
 
         # Only run at the top of the hour (minute 0)
         if current_minute != 0:

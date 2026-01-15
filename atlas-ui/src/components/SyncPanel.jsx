@@ -3,7 +3,7 @@ import axios from 'axios'
 import {
   RefreshCw, CheckCircle, AlertCircle, Clock, Loader2,
   X, Calendar, ToggleLeft, ToggleRight, ChevronDown, ChevronUp,
-  Database, ArrowRight
+  Database, ArrowRight, Settings
 } from 'lucide-react'
 
 // Constants
@@ -85,6 +85,11 @@ export default function SyncPanel({ service }) {
   const [error, setError] = useState(null)
   const [expandedErrorId, setExpandedErrorId] = useState(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+  // Schedule editor modal state
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [selectedHours, setSelectedHours] = useState([])
+  const [savingSchedule, setSavingSchedule] = useState(false)
 
   // Refs
   const pollingRef = useRef(null)
@@ -220,6 +225,47 @@ export default function SyncPanel({ service }) {
     } catch (err) {
       console.error(`Failed to update ${service} schedule:`, err)
     }
+  }
+
+  // Open schedule editor modal
+  const openScheduleModal = () => {
+    setSelectedHours(schedule?.hours || [])
+    setShowScheduleModal(true)
+  }
+
+  // Toggle hour selection
+  const toggleHour = (hour) => {
+    setSelectedHours(prev =>
+      prev.includes(hour)
+        ? prev.filter(h => h !== hour)
+        : [...prev, hour].sort((a, b) => a - b)
+    )
+  }
+
+  // Save schedule hours
+  const saveScheduleHours = async () => {
+    setSavingSchedule(true)
+    try {
+      await axios.put(`/api/utilities/schedules/${service}`, { hours: selectedHours })
+      await fetchData()
+      setShowScheduleModal(false)
+    } catch (err) {
+      console.error(`Failed to update ${service} schedule:`, err)
+      setError('Failed to save schedule')
+    } finally {
+      setSavingSchedule(false)
+    }
+  }
+
+  // Format hour for display in modal (always show in user's format)
+  const formatHourLabel = (hour) => {
+    const { hour12 } = getDisplaySettings()
+    if (hour12) {
+      const period = hour >= 12 ? 'PM' : 'AM'
+      const h = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
+      return `${h}${period}`
+    }
+    return `${hour.toString().padStart(2, '0')}:00`
   }
 
   // Format helpers
@@ -384,6 +430,13 @@ export default function SyncPanel({ service }) {
           </div>
           <div className="flex items-center gap-2">
             {getStatusIcon()}
+            <button
+              onClick={openScheduleModal}
+              className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              title="Edit schedule"
+            >
+              <Settings className="h-5 w-5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" />
+            </button>
             <button
               onClick={handleToggleEnabled}
               className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
@@ -625,6 +678,136 @@ export default function SyncPanel({ service }) {
       {error && (
         <div className="mx-5 mb-5 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
           {error}
+        </div>
+      )}
+
+      {/* Schedule Editor Modal */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg mx-4 overflow-hidden">
+            {/* Modal Header */}
+            <div className={`px-5 py-4 border-b border-slate-200 dark:border-slate-700 ${colors.bg}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Calendar className={`h-5 w-5 ${colors.text}`} />
+                  <div>
+                    <h3 className="font-semibold text-slate-800 dark:text-slate-100">
+                      Schedule {config.name} Sync
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Select hours when sync should run automatically
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowScheduleModal(false)}
+                  className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                >
+                  <X className="h-5 w-5 text-slate-400" />
+                </button>
+              </div>
+            </div>
+
+            {/* Hour Grid */}
+            <div className="p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-sm text-slate-600 dark:text-slate-300">
+                  {selectedHours.length} hour{selectedHours.length !== 1 ? 's' : ''} selected
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSelectedHours([])}
+                    className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                  >
+                    Clear all
+                  </button>
+                  <span className="text-slate-300 dark:text-slate-600">|</span>
+                  <button
+                    onClick={() => setSelectedHours([...Array(24).keys()])}
+                    className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                  >
+                    Select all
+                  </button>
+                </div>
+              </div>
+
+              {/* AM Hours */}
+              <div className="mb-4">
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">AM</p>
+                <div className="grid grid-cols-6 gap-2">
+                  {[...Array(12).keys()].map(hour => (
+                    <button
+                      key={hour}
+                      onClick={() => toggleHour(hour)}
+                      className={`py-2 px-1 rounded-lg text-sm font-medium transition-all ${
+                        selectedHours.includes(hour)
+                          ? `${colors.badge} ring-2 ring-offset-1 ring-offset-white dark:ring-offset-slate-800 ${
+                              config.color === 'blue' ? 'ring-blue-400' :
+                              config.color === 'emerald' ? 'ring-emerald-400' :
+                              'ring-purple-400'
+                            }`
+                          : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                      }`}
+                    >
+                      {formatHourLabel(hour)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* PM Hours */}
+              <div>
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">PM</p>
+                <div className="grid grid-cols-6 gap-2">
+                  {[...Array(12).keys()].map(i => {
+                    const hour = i + 12
+                    return (
+                      <button
+                        key={hour}
+                        onClick={() => toggleHour(hour)}
+                        className={`py-2 px-1 rounded-lg text-sm font-medium transition-all ${
+                          selectedHours.includes(hour)
+                            ? `${colors.badge} ring-2 ring-offset-1 ring-offset-white dark:ring-offset-slate-800 ${
+                                config.color === 'blue' ? 'ring-blue-400' :
+                                config.color === 'emerald' ? 'ring-emerald-400' :
+                                'ring-purple-400'
+                              }`
+                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                        }`}
+                      >
+                        {formatHourLabel(hour)}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowScheduleModal(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveScheduleHours}
+                disabled={savingSchedule}
+                className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 ${
+                  config.color === 'blue' ? 'bg-blue-600 hover:bg-blue-700' :
+                  config.color === 'emerald' ? 'bg-emerald-600 hover:bg-emerald-700' :
+                  'bg-purple-600 hover:bg-purple-700'
+                }`}
+              >
+                {savingSchedule ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  'Save Schedule'
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

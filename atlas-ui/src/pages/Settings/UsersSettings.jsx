@@ -29,6 +29,12 @@ export default function UsersSettings() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmNewPassword, setConfirmNewPassword] = useState('')
 
+  // Get display settings from localStorage
+  const getDisplaySettings = () => ({
+    timezone: localStorage.getItem('atlas_timezone') || 'America/New_York',
+    hour12: localStorage.getItem('atlas_time_format') !== '24'
+  })
+
   // Fetch users
   const fetchUsers = async () => {
     try {
@@ -250,12 +256,19 @@ export default function UsersSettings() {
                   </td>
                   <td className="py-3 px-4 text-slate-600 dark:text-slate-300">
                     {user.last_login
-                      ? new Date(user.last_login).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })
+                      ? (() => {
+                          const { timezone, hour12 } = getDisplaySettings()
+                          // Ensure timestamp is treated as UTC
+                          const dateStr = user.last_login.endsWith('Z') ? user.last_login : user.last_login + 'Z'
+                          return new Date(dateStr).toLocaleString('en-US', {
+                            timeZone: timezone,
+                            month: 'short',
+                            day: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: hour12
+                          })
+                        })()
                       : 'Never'}
                   </td>
                   <td className="py-3 px-4 text-right">
