@@ -9,6 +9,11 @@ export default function Footer({ className = '' }) {
           <span>&copy; {new Date().getFullYear()} Caesar Rodney School District</span>
         </div>
         
+        <div className="flex flex-col items-center text-center">
+          <span className="font-medium text-slate-600 dark:text-slate-300">Asset, Telemetry, Location, & Analytics System</span>
+          <span className="text-xs text-slate-400">A unified IT operations platform for K-12 school districts</span>
+        </div>
+        
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2" title="Project Version">
             <GitBranch className="h-4 w-4" />
