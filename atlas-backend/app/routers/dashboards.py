@@ -75,13 +75,16 @@ def get_overview_stats(request: Request, db: Session = Depends(get_db)):
     ).scalar() or 0
 
     # Network Stats - Devices (APs + Switches)
-    meraki_aps_count = db.query(func.count(MerakiDevice.serial)).filter(
-        MerakiDevice.product_type == 'wireless'
-    ).scalar() or 0
+    device_counts = db.query(
+        MerakiDevice.product_type,
+        func.count(MerakiDevice.serial)
+    ).filter(
+        MerakiDevice.product_type.in_(['wireless', 'switch'])
+    ).group_by(MerakiDevice.product_type).all()
 
-    meraki_switches_count = db.query(func.count(MerakiDevice.serial)).filter(
-        MerakiDevice.product_type == 'switch'
-    ).scalar() or 0
+    counts_map = {pt: count for pt, count in device_counts}
+    meraki_aps_count = counts_map.get('wireless', 0)
+    meraki_switches_count = counts_map.get('switch', 0)
 
     # Check configurations
     iiq_config = get_iiq_config()
