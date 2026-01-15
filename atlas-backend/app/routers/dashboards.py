@@ -77,6 +77,11 @@ def get_overview_stats(request: Request, db: Session = Depends(get_db)):
     # Network Stats (primary key is mac_address)
     network_total = db.query(func.count(NetworkCache.mac_address)).scalar() or 0
 
+    # Network Stats - Devices (APs + Switches)
+    meraki_devices_count = db.query(func.count(MerakiDevice.serial)).filter(
+        MerakiDevice.product_type.in_(['wireless', 'switch'])
+    ).scalar() or 0
+
     # Check configurations
     iiq_config = get_iiq_config()
     iiq_configured = bool(iiq_config.get("url") and iiq_config.get("token"))
@@ -103,7 +108,8 @@ def get_overview_stats(request: Request, db: Session = Depends(get_db)):
         },
         "network": {
             "configured": meraki_configured,
-            "cached_clients": network_total
+            "cached_clients": network_total,
+            "total_devices": meraki_devices_count
         }
     }
 
