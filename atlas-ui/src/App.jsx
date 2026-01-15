@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { Sun, Moon, LogOut } from 'lucide-react'
+import axios from 'axios'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { IntegrationsProvider } from './context/IntegrationsContext'
 import Sidebar from './components/Sidebar'
@@ -21,6 +22,29 @@ import Footer from './components/Footer'
 function AppLayout() {
   const location = useLocation()
   const { user, logout, isAuthenticated, loading } = useAuth()
+
+  // District Settings State
+  const [districtSettings, setDistrictSettings] = useState({
+    name: 'Caesar Rodney School District',
+    email: ''
+  })
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const response = await axios.get('/api/settings/public')
+        if (response.data) {
+          setDistrictSettings({
+            name: response.data.district_name || 'Caesar Rodney School District',
+            email: response.data.support_email || ''
+          })
+        }
+      } catch (err) {
+        // Silent fail, use defaults if endpoint doesn't exist yet
+      }
+    }
+    fetchSettings()
+  }, [])
 
   // Dark Mode State
   const [darkMode, setDarkMode] = useState(() => {
