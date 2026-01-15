@@ -72,8 +72,8 @@ export default function DashboardsIndex() {
       to: '/dashboards/meraki',
       settingsTo: '/settings/meraki',
       ready: true,
-      stat: stats?.network?.cached_clients,
-      statLabel: 'cached'
+      apCount: stats?.network?.ap_count,
+      switchCount: stats?.network?.switch_count
     }
   ]
 
@@ -226,7 +226,18 @@ export default function DashboardsIndex() {
                   <div className={`inline-flex p-3 rounded-xl bg-white dark:bg-slate-800 shadow-sm`}>
                     <Icon className={`h-6 w-6 ${colors.icon}`} />
                   </div>
-                  {isConfigured && dashboard.stat !== undefined && (
+                  {isConfigured && dashboard.id === 'meraki' ? (
+                    <div className="text-right flex flex-col items-end">
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-[10px] text-slate-400 uppercase">APs</span>
+                        <span className={`text-xl font-bold ${colors.stat}`}>{dashboard.apCount || 0}</span>
+                      </div>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-[10px] text-slate-400 uppercase">Switches</span>
+                        <span className={`text-xl font-bold ${colors.stat}`}>{dashboard.switchCount || 0}</span>
+                      </div>
+                    </div>
+                  ) : isConfigured && dashboard.stat !== undefined && (
                     <div className="text-right">
                       <p className={`text-2xl font-bold ${colors.stat}`}>{dashboard.stat}</p>
                       <p className="text-[10px] text-slate-400 uppercase">{dashboard.statLabel}</p>
