@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Monitor, Clock, Globe, Check, Palette } from 'lucide-react'
+import axios from 'axios'
 
 // Common US timezones
 const TIMEZONES = [
@@ -23,8 +24,26 @@ export default function DisplaySettings() {
     localStorage.getItem('atlas_vendor_colors') !== 'false'
   )
   const [saved, setSaved] = useState(false)
+  const initialMount = useRef(true)
 
-  // Save to localStorage when changed
+  // Load schedule_timezone from backend on mount
+  useEffect(() => {
+    const loadBackendTimezone = async () => {
+      try {
+        const res = await axios.get('/api/settings')
+        if (res.data?.schedule_timezone) {
+          // Backend has a timezone set - sync it to localStorage
+          localStorage.setItem('atlas_timezone', res.data.schedule_timezone)
+          setTimezone(res.data.schedule_timezone)
+        }
+      } catch (err) {
+        // Ignore errors - use localStorage value
+      }
+    }
+    loadBackendTimezone()
+  }, [])
+
+  // Save to localStorage and backend when changed
   useEffect(() => {
     localStorage.setItem('atlas_timezone', timezone)
     localStorage.setItem('atlas_time_format', timeFormat)
@@ -34,6 +53,16 @@ export default function DisplaySettings() {
     window.dispatchEvent(new CustomEvent('atlas-settings-changed', {
       detail: { timezone, timeFormat, showVendorColors }
     }))
+
+    // Also save timezone to backend for scheduler (skip on initial mount)
+    if (!initialMount.current) {
+      axios.post('/api/settings', {
+        settings: { schedule_timezone: timezone }
+      }).catch(() => {
+        // Ignore errors - localStorage is the primary source
+      })
+    }
+    initialMount.current = false
 
     setSaved(true)
     const timer = setTimeout(() => setSaved(false), 2000)

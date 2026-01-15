@@ -21,12 +21,20 @@ export default function Device360() {
   const [showVendorColors, setShowVendorColors] = useState(
     () => localStorage.getItem('atlas_vendor_colors') !== 'false'
   )
+  const [displaySettings, setDisplaySettings] = useState(() => ({
+    timezone: localStorage.getItem('atlas_timezone') || 'America/New_York',
+    hour12: localStorage.getItem('atlas_time_format') !== '24'
+  }))
   const { integrations } = useIntegrations()
 
   // Listen for settings changes
   useEffect(() => {
     const handleSettingsChange = (e) => {
       setShowVendorColors(e.detail?.showVendorColors ?? true)
+      setDisplaySettings({
+        timezone: localStorage.getItem('atlas_timezone') || 'America/New_York',
+        hour12: localStorage.getItem('atlas_time_format') !== '24'
+      })
     }
     window.addEventListener('atlas-settings-changed', handleSettingsChange)
     return () => window.removeEventListener('atlas-settings-changed', handleSettingsChange)
@@ -100,13 +108,13 @@ export default function Device360() {
     }
     const date = new Date(dateStr);
     return date.toLocaleString('en-US', {
-      timeZone: 'America/New_York',
+      timeZone: displaySettings.timezone,
       month: 'short',
       day: 'numeric',
       year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true
+      hour12: displaySettings.hour12
     });
   };
 

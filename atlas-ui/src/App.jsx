@@ -101,11 +101,6 @@ function AppLayout() {
               >
                 <LogOut className="h-4 w-4" />
               </button>
-
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-white dark:bg-slate-900 rounded-full border border-slate-200 dark:border-slate-800 shadow-sm">
-                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Online</span>
-              </div>
             </div>
           </div>
         </header>
