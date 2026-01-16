@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { Sun, Moon, LogOut } from 'lucide-react'
+import axios from 'axios'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { IntegrationsProvider } from './context/IntegrationsContext'
 import Sidebar from './components/Sidebar'
@@ -15,11 +16,35 @@ import UtilitiesIndex from './pages/Utilities/index'
 import SettingsIndex from './pages/Settings/index'
 import Login from './pages/Login'
 import PasswordChangeModal from './components/PasswordChangeModal'
+import Footer from './components/Footer'
 
 // Layout component that handles responsive width based on route
 function AppLayout() {
   const location = useLocation()
   const { user, logout, isAuthenticated, loading } = useAuth()
+
+  // District Settings State
+  const [districtSettings, setDistrictSettings] = useState({
+    name: 'Caesar Rodney School District',
+    email: ''
+  })
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const response = await axios.get('/api/settings/public')
+        if (response.data) {
+          setDistrictSettings({
+            name: response.data.district_name || 'Caesar Rodney School District',
+            email: response.data.support_email || ''
+          })
+        }
+      } catch (err) {
+        // Silent fail, use defaults if endpoint doesn't exist yet
+      }
+    }
+    fetchSettings()
+  }, [])
 
   // Dark Mode State
   const [darkMode, setDarkMode] = useState(() => {
@@ -123,11 +148,11 @@ function AppLayout() {
         </main>
 
         {/* Footer */}
-        <footer className={`${contentWidthClass} py-8 border-t border-slate-200 dark:border-slate-800 text-center`}>
-          <p className="text-[10px] font-bold text-slate-400 dark:text-slate-600 uppercase tracking-[0.2em]">
-            ATLAS Asset, Telemetry, Location, & Analytics System
-          </p>
-        </footer>
+        <Footer 
+          className={contentWidthClass} 
+          districtName={districtSettings.name}
+          supportEmail={districtSettings.email}
+        />
       </div>
     </div>
   )
