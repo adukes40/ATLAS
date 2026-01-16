@@ -45,8 +45,9 @@ def read_version_file() -> str:
 def get_local_git_commit() -> str:
     """Get the current local git commit hash."""
     try:
+        # Use absolute path to git since systemd service may not have /usr/bin in PATH
         result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+            ["/usr/bin/git", "rev-parse", "HEAD"],
             cwd="/opt/atlas",
             capture_output=True,
             text=True
@@ -145,6 +146,16 @@ async def check_for_updates(
     local_commit = get_local_git_commit()
     local_commit_short = local_commit[:7] if local_commit != "unknown" else "unknown"
 
+    # If we couldn't get the local git commit, report an error
+    if local_commit == "unknown":
+        return {
+            "update_available": False,
+            "current_version": current_version,
+            "current_commit": local_commit_short,
+            "error": "Could not read local git commit. Git may not be accessible.",
+            "checked_at": datetime.utcnow().isoformat()
+        }
+
     # Fetch from GitHub
     github_data = await fetch_github_commits(local_commit)
 
@@ -153,14 +164,15 @@ async def check_for_updates(
             "update_available": False,
             "current_version": current_version,
             "current_commit": local_commit_short,
-            "error": github_data["error"]
+            "error": github_data["error"],
+            "checked_at": datetime.utcnow().isoformat()
         }
 
     latest_commit = github_data["latest_commit"]
     latest_commit_short = latest_commit[:7]
 
     # Check if update available
-    update_available = local_commit != "unknown" and not latest_commit.startswith(local_commit[:7])
+    update_available = not latest_commit.startswith(local_commit[:7])
 
     result = {
         "update_available": update_available,
