@@ -517,3 +517,18 @@ class UpdateLog(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     triggered_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # User email
     output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Update script output
+
+
+# --- OUI VENDOR DATABASE (Utilities) ---
+class OuiVendor(Base):
+    """
+    IEEE OUI (Organizationally Unique Identifier) database.
+    Maps first 6 hex digits of MAC address to manufacturer.
+    Updated daily from IEEE public database.
+    """
+    __tablename__ = "oui_vendors"
+
+    oui: Mapped[str] = mapped_column(String(6), primary_key=True)  # Normalized: "AABBCC"
+    vendor_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

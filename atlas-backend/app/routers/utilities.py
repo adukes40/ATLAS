@@ -662,3 +662,140 @@ def dismiss_all_notifications(db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": f"Dismissed {count} notification(s)", "count": count}
+
+
+# =============================================================================
+# MAC Address Vendor Lookup
+# =============================================================================
+
+import re
+from app.models import OuiVendor
+
+
+def normalize_mac(mac: str) -> str:
+    """
+    Normalize MAC address to uppercase hex without separators.
+    Accepts: AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, AABBCCDDEEFF
+    Returns: AABBCCDDEEFF (uppercase)
+    """
+    cleaned = re.sub(r'[^a-fA-F0-9]', '', mac)
+    return cleaned.upper()
+
+
+def extract_oui(mac: str) -> Optional[str]:
+    """
+    Extract OUI (first 6 hex characters) from normalized MAC.
+    """
+    normalized = normalize_mac(mac)
+    if len(normalized) < 6:
+        return None
+    return normalized[:6]
+
+
+def format_mac(mac: str) -> str:
+    """
+    Format normalized MAC to standard format (AA:BB:CC:DD:EE:FF).
+    """
+    normalized = normalize_mac(mac)
+    if len(normalized) == 12:
+        return ':'.join(normalized[i:i+2] for i in range(0, 12, 2))
+    elif len(normalized) == 6:
+        return ':'.join(normalized[i:i+2] for i in range(0, 6, 2))
+    return normalized
+
+
+@router.get("/mac-lookup")
+def lookup_mac(mac: str, db: Session = Depends(get_db)):
+    """
+    Look up vendor information for a single MAC address.
+    """
+    oui = extract_oui(mac)
+    if not oui:
+        raise HTTPException(status_code=400, detail="Invalid MAC address format")
+
+    vendor = db.query(OuiVendor).filter(OuiVendor.oui == oui).first()
+
+    return {
+        "mac": format_mac(mac),
+        "oui": format_mac(oui),
+        "vendor": vendor.vendor_name if vendor else "Unknown",
+        "address": vendor.address if vendor else None,
+        "found": vendor is not None
+    }
+
+
+class MacLookupBulkRequest(BaseModel):
+    macs: List[str]
+
+
+@router.post("/mac-lookup/bulk")
+def lookup_mac_bulk(request: MacLookupBulkRequest, db: Session = Depends(get_db)):
+    """
+    Look up vendor information for multiple MAC addresses.
+    Maximum 100 addresses per request.
+    """
+    macs = request.macs
+
+    if len(macs) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 MAC addresses per request")
+
+    results = []
+
+    # Extract all OUIs and fetch in one query
+    oui_map = {}
+    for mac in macs:
+        oui = extract_oui(mac)
+        if oui:
+            oui_map[oui] = None
+
+    # Batch fetch all vendors
+    if oui_map:
+        vendors = db.query(OuiVendor).filter(OuiVendor.oui.in_(oui_map.keys())).all()
+        for vendor in vendors:
+            oui_map[vendor.oui] = vendor
+
+    # Build results
+    for mac in macs:
+        oui = extract_oui(mac)
+        if not oui:
+            results.append({
+                "mac": mac,
+                "oui": None,
+                "vendor": "Invalid MAC",
+                "address": None,
+                "found": False,
+                "error": True
+            })
+            continue
+
+        vendor = oui_map.get(oui)
+        results.append({
+            "mac": format_mac(mac),
+            "oui": format_mac(oui),
+            "vendor": vendor.vendor_name if vendor else "Unknown",
+            "address": vendor.address if vendor else None,
+            "found": vendor is not None,
+            "error": False
+        })
+
+    return {
+        "results": results,
+        "total": len(results),
+        "found": sum(1 for r in results if r["found"]),
+        "unknown": sum(1 for r in results if not r["found"] and not r.get("error")),
+        "errors": sum(1 for r in results if r.get("error"))
+    }
+
+
+@router.get("/mac-lookup/stats")
+def get_oui_stats(db: Session = Depends(get_db)):
+    """
+    Get OUI database statistics.
+    """
+    count = db.query(OuiVendor).count()
+    latest = db.query(OuiVendor).order_by(OuiVendor.last_updated.desc()).first()
+
+    return {
+        "vendor_count": count,
+        "last_updated": latest.last_updated.isoformat() if latest else None
+    }
