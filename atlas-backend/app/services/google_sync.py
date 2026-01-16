@@ -25,7 +25,8 @@ class GoogleConnector:
         """
         self.scopes = [
             'https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly',
-            'https://www.googleapis.com/auth/admin.directory.user.readonly'
+            'https://www.googleapis.com/auth/admin.directory.user.readonly',
+            'https://www.googleapis.com/auth/chrome.management.telemetry.readonly'
         ]
 
         # Prefer credentials_json (from database) over file path
@@ -41,6 +42,144 @@ class GoogleConnector:
 
         self.delegated_credentials = self.credentials.with_subject(admin_email)
         self.service = build('admin', 'directory_v1', credentials=self.delegated_credentials)
+
+        # Chrome Management Telemetry API for battery health data
+        try:
+            self.telemetry_service = build('chromemanagement', 'v1', credentials=self.delegated_credentials)
+            self._telemetry_cache = {}  # Cache telemetry data by serial number
+        except Exception as e:
+            logger.warning(f"Could not initialize Telemetry API: {e}")
+            self.telemetry_service = None
+            self._telemetry_cache = {}
+
+    def fetch_battery_telemetry(self, serial: str = None):
+        """
+        Fetches battery telemetry from Chrome Management Telemetry API.
+        If serial is provided, returns data for that device.
+        If serial is None, fetches all and populates cache.
+        """
+        if not self.telemetry_service:
+            return None
+
+        try:
+            if serial and serial in self._telemetry_cache:
+                return self._telemetry_cache[serial]
+
+            # Fetch telemetry data
+            result = self.telemetry_service.customers().telemetry().devices().list(
+                parent='customers/my_customer',
+                pageSize=1000,
+                readMask='serialNumber,batteryInfo,batteryStatusReport'
+            ).execute()
+
+            devices = result.get('devices', [])
+
+            for device in devices:
+                device_serial = device.get('serialNumber')
+                if not device_serial:
+                    continue
+
+                battery_health_percent = None
+                battery_status = None
+                cycle_count = None
+
+                # Get battery status report
+                battery_reports = device.get('batteryStatusReport', [])
+                if battery_reports:
+                    latest_report = battery_reports[0]  # Most recent
+                    battery_status = latest_report.get('batteryHealth')  # e.g., "BATTERY_HEALTH_NORMAL"
+                    cycle_count = latest_report.get('cycleCount')
+
+                    # Calculate health percentage from capacity
+                    full_capacity = latest_report.get('fullChargeCapacity')
+                    battery_info = device.get('batteryInfo', [])
+                    if battery_info and full_capacity:
+                        design_capacity = battery_info[0].get('designCapacity')
+                        if design_capacity:
+                            try:
+                                battery_health_percent = int((int(full_capacity) / int(design_capacity)) * 100)
+                                # Cap at 100%
+                                battery_health_percent = min(battery_health_percent, 100)
+                            except (ValueError, ZeroDivisionError):
+                                pass
+
+                self._telemetry_cache[device_serial] = {
+                    'battery_health_percent': battery_health_percent,
+                    'battery_status': battery_status,
+                    'cycle_count': cycle_count
+                }
+
+            if serial:
+                return self._telemetry_cache.get(serial)
+            return self._telemetry_cache
+
+        except Exception as e:
+            logger.warning(f"Error fetching battery telemetry: {e}")
+            return None
+
+    def preload_telemetry_cache(self):
+        """
+        Preloads all battery telemetry data into cache for bulk sync operations.
+        """
+        if not self.telemetry_service:
+            logger.info("Telemetry API not available, skipping battery data")
+            return
+
+        logger.info("Preloading battery telemetry data...")
+        page_token = None
+        total = 0
+
+        try:
+            while True:
+                result = self.telemetry_service.customers().telemetry().devices().list(
+                    parent='customers/my_customer',
+                    pageSize=1000,
+                    pageToken=page_token,
+                    readMask='serialNumber,batteryInfo,batteryStatusReport'
+                ).execute()
+
+                devices = result.get('devices', [])
+
+                for device in devices:
+                    device_serial = device.get('serialNumber')
+                    if not device_serial:
+                        continue
+
+                    battery_health_percent = None
+                    battery_status = None
+                    cycle_count = None
+
+                    battery_reports = device.get('batteryStatusReport', [])
+                    if battery_reports:
+                        latest_report = battery_reports[0]
+                        battery_status = latest_report.get('batteryHealth')
+                        cycle_count = latest_report.get('cycleCount')
+
+                        full_capacity = latest_report.get('fullChargeCapacity')
+                        battery_info = device.get('batteryInfo', [])
+                        if battery_info and full_capacity:
+                            design_capacity = battery_info[0].get('designCapacity')
+                            if design_capacity:
+                                try:
+                                    battery_health_percent = int((int(full_capacity) / int(design_capacity)) * 100)
+                                    battery_health_percent = min(battery_health_percent, 100)
+                                except (ValueError, ZeroDivisionError):
+                                    pass
+
+                    self._telemetry_cache[device_serial] = {
+                        'battery_health_percent': battery_health_percent,
+                        'battery_status': battery_status,
+                        'cycle_count': cycle_count
+                    }
+                    total += 1
+
+                page_token = result.get('nextPageToken')
+                if not page_token:
+                    break
+
+            logger.info(f"Loaded battery telemetry for {total} devices")
+        except Exception as e:
+            logger.warning(f"Error preloading telemetry cache: {e}")
 
     def fetch_device_by_serial(self, serial: str):
         """
@@ -109,12 +248,11 @@ class GoogleConnector:
         if disk_total and disk_used:
             disk_free = int(disk_total) - int(disk_used)
 
-        # 4. Battery Health (percentage)
+        # 4. Battery Health (from Telemetry API)
         battery_health = None
-        battery_reports = raw_data.get('batteryStatusReports', [])
-        if battery_reports:
-            # Get the most recent battery health percentage
-            battery_health = battery_reports[-1].get('batteryHealth')
+        telemetry_data = self.fetch_battery_telemetry(serial)
+        if telemetry_data:
+            battery_health = telemetry_data.get('battery_health_percent')
 
         # 5. Network IP Addresses (from lastKnownNetwork)
         lan_ip = None
@@ -222,6 +360,9 @@ class GoogleConnector:
         logger.info("STARTING GOOGLE BULK SYNC")
         logger.info("=" * 50)
 
+        # Preload battery telemetry data for all devices
+        self.preload_telemetry_cache()
+
         success_count = 0
         error_count = 0
 
@@ -260,10 +401,11 @@ class GoogleConnector:
                 if disk_total and disk_used:
                     disk_free = int(disk_total) - int(disk_used)
 
+                # Get battery health from telemetry cache
                 battery_health = None
-                battery_reports = raw_data.get('batteryStatusReports', [])
-                if battery_reports:
-                    battery_health = battery_reports[-1].get('batteryHealth')
+                telemetry_data = self._telemetry_cache.get(serial)
+                if telemetry_data:
+                    battery_health = telemetry_data.get('battery_health_percent')
 
                 lan_ip = None
                 wan_ip = None
