@@ -224,28 +224,50 @@ async def apply_update(
     finally:
         db.close()
 
-    # Run update.sh
-    try:
-        result = subprocess.run(
-            ["/usr/bin/sudo", "/opt/atlas/update.sh", GITHUB_BRANCH],
-            cwd="/opt/atlas",
-            capture_output=True,
-            text=True,
-            timeout=600  # 10 minute timeout
-        )
+    # Trigger update via systemd path unit
+    # This creates a trigger file that systemd watches, then runs update.sh as root
+    trigger_file = "/opt/atlas/logs/trigger-update"
+    log_file = "/opt/atlas/logs/update.log"
 
-        output = result.stdout + "\n" + result.stderr
-        success = result.returncode == 0
+    try:
+        # Clear previous log
+        if os.path.exists(log_file):
+            os.remove(log_file)
+
+        # Create trigger file to start the update
+        with open(trigger_file, "w") as f:
+            f.write(f"Triggered by {current_user.get('email', 'unknown')} at {datetime.utcnow().isoformat()}\n")
+
+        # Wait for update to complete (poll for trigger file removal)
+        import time
+        max_wait = 600  # 10 minutes
+        poll_interval = 2
+        waited = 0
+
+        while os.path.exists(trigger_file) and waited < max_wait:
+            time.sleep(poll_interval)
+            waited += poll_interval
+
+        if waited >= max_wait:
+            output = "Update timed out after 10 minutes"
+            success = False
+        else:
+            # Read the log file for output
+            time.sleep(1)  # Brief pause to ensure log is written
+            if os.path.exists(log_file):
+                with open(log_file, "r") as f:
+                    output = f.read()
+            else:
+                output = "Update completed but no log file found"
+
+            # Check if update was successful by comparing commits
+            to_commit_check = get_local_git_commit_short()
+            success = to_commit_check != from_commit or "error" not in output.lower()
 
         # Get new version info after update
         to_version = read_version_file()
         to_commit = get_local_git_commit_short()
 
-    except subprocess.TimeoutExpired:
-        output = "Update timed out after 10 minutes"
-        success = False
-        to_version = from_version
-        to_commit = from_commit
     except Exception as e:
         output = f"Update failed: {str(e)}"
         success = False
