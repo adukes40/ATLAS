@@ -1,6 +1,22 @@
+import { useState, useEffect } from 'react'
 import { Github, GitBranch, Mail } from 'lucide-react'
+import axios from 'axios'
 
 export default function Footer({ className = '', districtName, supportEmail }) {
+  const [version, setVersion] = useState({ version: '...', commit: '' })
+
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const res = await axios.get('/api/system/version')
+        setVersion(res.data)
+      } catch (err) {
+        setVersion({ version: '?.?.?', commit: '' })
+      }
+    }
+    fetchVersion()
+  }, [])
+
   return (
     <footer className={`mt-12 py-6 border-t border-slate-200 dark:border-slate-800 ${className}`}>
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-slate-500 dark:text-slate-400">
@@ -23,9 +39,9 @@ export default function Footer({ className = '', districtName, supportEmail }) {
         </div>
         
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2" title="Project Version">
+          <div className="flex items-center gap-2" title={version.commit ? `Commit: ${version.commit}` : 'Project Version'}>
             <GitBranch className="h-4 w-4" />
-            <span className="font-mono">v1.0.0</span>
+            <span className="font-mono">v{version.version}</span>
           </div>
           
           <a 

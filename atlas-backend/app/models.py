@@ -497,3 +497,23 @@ class IIQManufacturer(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     meta_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+
+# --- SYSTEM UPDATE LOGS ---
+class UpdateLog(Base):
+    """
+    Tracks system update operations triggered from the UI.
+    Stores version info, status, and output from update.sh runs.
+    """
+    __tablename__ = "update_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    from_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    to_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    from_commit: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    to_commit: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default='running')  # running/success/failed
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    triggered_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # User email
+    output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Update script output

@@ -1,5 +1,5 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Settings, Database, Cloud, Wifi, Users, Key, Monitor, Building } from 'lucide-react'
+import { Settings, Database, Cloud, Wifi, Users, Key, Monitor, Building, Server } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import IIQSettings from './IIQSettings'
 import GoogleSettings from './GoogleSettings'
@@ -8,6 +8,7 @@ import OAuthSettings from './OAuthSettings'
 import UsersSettings from './UsersSettings'
 import DisplaySettings from './DisplaySettings'
 import DistrictSettings from './DistrictSettings'
+import SystemSettings from './SystemSettings'
 
 const settingsNav = [
   { to: '/settings/display', icon: Monitor, label: 'Display' },
@@ -17,6 +18,7 @@ const settingsNav = [
   { to: '/settings/meraki', icon: Wifi, label: 'Meraki' },
   { to: '/settings/oauth', icon: Key, label: 'OAuth / SSO' },
   { to: '/settings/users', icon: Users, label: 'Local Users' },
+  { to: '/settings/system', icon: Server, label: 'System' },
 ]
 
 export default function SettingsIndex() {
@@ -82,6 +84,7 @@ export default function SettingsIndex() {
           <Route path="meraki" element={<MerakiSettings />} />
           <Route path="oauth" element={<OAuthSettings />} />
           <Route path="users" element={<UsersSettings />} />
+          <Route path="system" element={<SystemSettings />} />
         </Routes>
       </div>
     </div>

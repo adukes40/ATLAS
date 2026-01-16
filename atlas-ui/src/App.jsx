@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { IntegrationsProvider } from './context/IntegrationsContext'
 import Sidebar from './components/Sidebar'
 import NotificationBell from './components/NotificationBell'
+import UpdateBadge from './components/UpdateBadge'
 import Device360 from './pages/Device360'
 import DashboardsIndex from './pages/Dashboards/index'
 import GoogleDashboard from './pages/Dashboards/GoogleDashboard'
@@ -103,6 +104,9 @@ function AppLayout() {
 
               {/* Notification Bell */}
               <NotificationBell />
+
+              {/* Update Badge - Admin only */}
+              {user?.role === 'admin' && <UpdateBadge />}
 
               {/* User Info */}
               <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-white dark:bg-slate-900 rounded-full border border-slate-200 dark:border-slate-800 shadow-sm">
