@@ -1,15 +1,23 @@
 #!/bin/bash
 #
 # ATLAS Update Script
-# Usage: 
+# Usage:
 #   sudo ./update.sh            # Interactive mode
-#   sudo ./update.sh [branch]   # Specify branch (e.g., sudo ./update.sh dev)
+#   sudo ./update.sh [branch]   # Non-interactive mode (for systemd)
 #
 
 set -e  # Exit on error
 
 # 1. Capture CLI argument for branch immediately
 CLI_BRANCH=$1
+
+# Determine if running interactively or via systemd
+# If branch is provided, assume non-interactive (systemd trigger)
+if [ -n "$CLI_BRANCH" ]; then
+    INTERACTIVE=false
+else
+    INTERACTIVE=true
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -52,36 +60,44 @@ if [ -n "$(git status --porcelain)" ]; then
     echo -e "${YELLOW}Warning: You have uncommitted local changes:${NC}"
     git status --short
     echo ""
-    # FIXED: Used standard read to prevent input skipping
-    echo -n "Continue anyway? (y/N) "
-    read -r CONFIRM < /dev/tty
-    echo ""
-    if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
-        echo -e "${RED}Update cancelled${NC}"
-        exit 1
+    if [ "$INTERACTIVE" = true ]; then
+        echo -n "Continue anyway? (y/N) "
+        read -r CONFIRM < /dev/tty
+        echo ""
+        if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
+            echo -e "${RED}Update cancelled${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${YELLOW}Non-interactive mode: Proceeding despite local changes${NC}"
     fi
 fi
 
 # ---------------------------------------------------------
 # 1. Select Update Source
 # ---------------------------------------------------------
-echo -e "${YELLOW}Select Update Source:${NC}"
-echo "  1) Production (Stable) - https://github.com/adukes40/ATLAS.git"
-echo "  2) Development (Testing) - https://github.com/hankscafe/ATLAS.git"
-echo ""
+if [ "$INTERACTIVE" = true ]; then
+    echo -e "${YELLOW}Select Update Source:${NC}"
+    echo "  1) Production (Stable) - https://github.com/adukes40/ATLAS.git"
+    echo "  2) Development (Testing) - https://github.com/hankscafe/ATLAS.git"
+    echo ""
 
-# FIXED: Explicitly reading from tty to ensure prompt works
-echo -n "Enter selection [1]: "
-read -r REPO_SELECT < /dev/tty
+    echo -n "Enter selection [1]: "
+    read -r REPO_SELECT < /dev/tty
 
-if [[ "$REPO_SELECT" == "2" ]]; then
-    TARGET_REPO="https://github.com/hankscafe/ATLAS.git"
-    echo -e "${GREEN}Selected: Development${NC}"
+    if [[ "$REPO_SELECT" == "2" ]]; then
+        TARGET_REPO="https://github.com/hankscafe/ATLAS.git"
+        echo -e "${GREEN}Selected: Development${NC}"
+    else
+        TARGET_REPO="https://github.com/adukes40/ATLAS.git"
+        echo -e "${GREEN}Selected: Production${NC}"
+    fi
+    echo ""
 else
+    # Non-interactive: Use production repo
     TARGET_REPO="https://github.com/adukes40/ATLAS.git"
-    echo -e "${GREEN}Selected: Production${NC}"
+    echo -e "${GREEN}Non-interactive mode: Using Production repo${NC}"
 fi
-echo ""
 
 # Update remote origin immediately
 git remote set-url origin "$TARGET_REPO"
@@ -97,7 +113,7 @@ if [ -n "$CLI_BRANCH" ]; then
 else
     echo -e "${YELLOW}Fetching available branches...${NC}"
     git fetch origin --prune
-    
+
     echo ""
     echo -e "${YELLOW}Select Branch:${NC}"
     echo -n "Enter branch name [main]: "
@@ -142,23 +158,32 @@ REMOTE=$(git rev-parse "origin/$BRANCH_NAME")
 if [ "$LOCAL" = "$REMOTE" ]; then
     echo -e "${GREEN}Already up to date!${NC}"
     echo ""
-    echo -n "Continue with rebuild anyway? (y/N) "
-    read -r CONFIRM < /dev/tty
-    echo ""
-    if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
-        echo -e "${BLUE}Nothing to do. Exiting.${NC}"
+    if [ "$INTERACTIVE" = true ]; then
+        echo -n "Continue with rebuild anyway? (y/N) "
+        read -r CONFIRM < /dev/tty
+        echo ""
+        if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}Nothing to do. Exiting.${NC}"
+            exit 0
+        fi
+    else
+        echo -e "${BLUE}Non-interactive mode: Already up to date, exiting.${NC}"
         exit 0
     fi
 else
     echo -e "${YELLOW}Changes to be applied:${NC}"
     git log --oneline "HEAD..origin/$BRANCH_NAME"
     echo ""
-    echo -n "Apply these updates? (y/N) "
-    read -r CONFIRM < /dev/tty
-    echo ""
-    if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
-        echo -e "${RED}Update cancelled${NC}"
-        exit 1
+    if [ "$INTERACTIVE" = true ]; then
+        echo -n "Apply these updates? (y/N) "
+        read -r CONFIRM < /dev/tty
+        echo ""
+        if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
+            echo -e "${RED}Update cancelled${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${GREEN}Non-interactive mode: Applying updates automatically${NC}"
     fi
 fi
 

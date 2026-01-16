@@ -467,6 +467,7 @@ create_service_user() {
 create_systemd_services() {
   msg_info "Creating systemd services"
 
+  # Main ATLAS API service
   cat > /etc/systemd/system/atlas.service << EOF
 [Unit]
 Description=ATLAS API Service (Asset, Telemetry, Location, & Analytics System)
@@ -475,8 +476,9 @@ After=network.target postgresql.service
 [Service]
 Type=simple
 User=$ATLAS_USER
+Group=$ATLAS_USER
 WorkingDirectory=$ATLAS_DIR/atlas-backend
-Environment="PATH=$VENV_DIR/bin"
+Environment="PATH=$VENV_DIR/bin:/usr/bin:/bin"
 EnvironmentFile=$ATLAS_DIR/atlas-backend/.env
 ExecStart=$VENV_DIR/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=always
@@ -487,13 +489,51 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
 ReadWritePaths=$ATLAS_DIR/atlas-backend $ATLAS_DIR/logs
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+  # Update service - runs update.sh as root when triggered
+  cat > /etc/systemd/system/atlas-update.service << EOF
+[Unit]
+Description=ATLAS Update Service
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$ATLAS_DIR
+ExecStart=$ATLAS_DIR/update.sh main
+ExecStartPost=/bin/rm -f $ATLAS_DIR/logs/trigger-update
+User=root
+StandardOutput=append:$ATLAS_DIR/logs/update.log
+StandardError=append:$ATLAS_DIR/logs/update.log
+EOF
+
+  # Path unit - watches for trigger file to start update
+  cat > /etc/systemd/system/atlas-update.path << EOF
+[Unit]
+Description=Watch for ATLAS update trigger
+
+[Path]
+PathExists=$ATLAS_DIR/logs/trigger-update
+Unit=atlas-update.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
   systemctl daemon-reload
+  systemctl enable atlas-update.path > /dev/null 2>&1
+  systemctl start atlas-update.path > /dev/null 2>&1
+
   msg_ok "Systemd services created"
 }
 
@@ -571,6 +611,9 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 # Meraki sync at 4 AM
 0 4 * * * $ATLAS_USER $VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/meraki_bulk_sync.py >> $ATLAS_DIR/logs/meraki_sync.log 2>&1
+
+# OUI database update at 5 AM (for MAC address vendor lookup)
+0 5 * * * $ATLAS_USER $VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/oui_update.py >> $ATLAS_DIR/logs/oui_update.log 2>&1
 EOF
 
   chmod 644 /etc/cron.d/atlas
