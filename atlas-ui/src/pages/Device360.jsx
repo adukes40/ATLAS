@@ -12,43 +12,80 @@ import { useIntegrations } from '../context/IntegrationsContext'
 // IIQ domain is loaded from environment variable (set in .env or at build time)
 const IIQ_DOMAIN = import.meta.env.VITE_IIQ_URL || "";
 
+// Color mappings for vendor borders
+const BORDER_COLORS = {
+  blue: 'border-l-4 border-l-blue-500',
+  emerald: 'border-l-4 border-l-emerald-500',
+  purple: 'border-l-4 border-l-purple-500',
+  amber: 'border-l-4 border-l-amber-500',
+  rose: 'border-l-4 border-l-rose-500',
+  cyan: 'border-l-4 border-l-cyan-500',
+}
+
+// Default colors for each platform
+const DEFAULT_PLATFORM_COLORS = {
+  iiq: 'blue',
+  google: 'emerald',
+  meraki: 'purple',
+}
+
+// Helper to get platform color from localStorage
+const getPlatformColor = (platform) => {
+  try {
+    const stored = localStorage.getItem('atlas_platform_colors')
+    const colors = stored ? JSON.parse(stored) : {}
+    return colors[platform] || DEFAULT_PLATFORM_COLORS[platform]
+  } catch {
+    return DEFAULT_PLATFORM_COLORS[platform]
+  }
+}
+
 export default function Device360() {
   const [serial, setSerial] = useState('')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState(null)
-  const [showVendorColors, setShowVendorColors] = useState(
-    () => localStorage.getItem('atlas_vendor_colors') !== 'false'
-  )
+  const [searchedQuery, setSearchedQuery] = useState('')
+  const [notFound, setNotFound] = useState(false)
   const [displaySettings, setDisplaySettings] = useState(() => ({
     timezone: localStorage.getItem('atlas_timezone') || 'America/New_York',
     hour12: localStorage.getItem('atlas_time_format') !== '24'
   }))
+  const [platformColors, setPlatformColors] = useState(() => ({
+    iiq: getPlatformColor('iiq'),
+    google: getPlatformColor('google'),
+    meraki: getPlatformColor('meraki'),
+  }))
   const { integrations } = useIntegrations()
 
-  // Listen for settings changes
+  // Listen for settings and color changes
   useEffect(() => {
-    const handleSettingsChange = (e) => {
-      setShowVendorColors(e.detail?.showVendorColors ?? true)
+    const handleSettingsChange = () => {
       setDisplaySettings({
         timezone: localStorage.getItem('atlas_timezone') || 'America/New_York',
         hour12: localStorage.getItem('atlas_time_format') !== '24'
       })
     }
+    const handleColorsChange = () => {
+      setPlatformColors({
+        iiq: getPlatformColor('iiq'),
+        google: getPlatformColor('google'),
+        meraki: getPlatformColor('meraki'),
+      })
+    }
     window.addEventListener('atlas-settings-changed', handleSettingsChange)
-    return () => window.removeEventListener('atlas-settings-changed', handleSettingsChange)
+    window.addEventListener('atlas-colors-changed', handleColorsChange)
+    return () => {
+      window.removeEventListener('atlas-settings-changed', handleSettingsChange)
+      window.removeEventListener('atlas-colors-changed', handleColorsChange)
+    }
   }, [])
 
-  // Helper to get vendor border class
+  // Helper to get vendor border class using dynamic platform colors
   const getVendorBorderClass = (vendor) => {
-    if (!showVendorColors) return ''
-    const colors = {
-      iiq: 'border-l-4 border-l-blue-500',
-      google: 'border-l-4 border-l-emerald-500',
-      meraki: 'border-l-4 border-l-purple-500'
-    }
-    return colors[vendor] || ''
+    const colorKey = platformColors[vendor]
+    return BORDER_COLORS[colorKey] || ''
   }
 
   const handleSearch = async (e) => {
@@ -58,13 +95,19 @@ export default function Device360() {
     setLoading(true)
     setError(null)
     setData(null)
+    setNotFound(false)
+    setSearchedQuery(serial.trim())
 
     try {
       const response = await axios.get(`/api/device/${serial}`)
       setData(response.data)
     } catch (err) {
       console.error(err)
-      setError("Device not found or System Offline")
+      if (err.response?.status === 404) {
+        setNotFound(true)
+      } else {
+        setError("Unable to search. Please try again or contact support.")
+      }
     } finally {
       setLoading(false)
     }
@@ -162,6 +205,23 @@ export default function Device360() {
             </div>
         )}
       </div>
+
+      {/* Not Found Display */}
+      {notFound && !loading && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-8 text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2">
+            Device Not Found
+          </h3>
+          <p className="text-slate-600 dark:text-slate-400 mb-4">
+            No device found for "<span className="font-mono font-semibold">{searchedQuery}</span>"
+          </p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+            Please verify your entry was entered correctly. If correct and still not found,
+            ensure the asset exists in IncidentIQ.
+          </p>
+        </div>
+      )}
 
       {/* Results View */}
       {data && (

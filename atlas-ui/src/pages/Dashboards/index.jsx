@@ -6,10 +6,43 @@ import {
   Monitor, Users, AlertTriangle, CheckCircle, Loader2
 } from 'lucide-react'
 
+// Color mappings for vendor borders
+const BORDER_COLORS = {
+  blue: 'border-l-4 border-l-blue-500',
+  emerald: 'border-l-4 border-l-emerald-500',
+  purple: 'border-l-4 border-l-purple-500',
+  amber: 'border-l-4 border-l-amber-500',
+  rose: 'border-l-4 border-l-rose-500',
+  cyan: 'border-l-4 border-l-cyan-500',
+}
+
+// Default colors for each platform
+const DEFAULT_PLATFORM_COLORS = {
+  iiq: 'blue',
+  google: 'emerald',
+  meraki: 'purple',
+}
+
+// Helper to get platform color from localStorage
+const getPlatformColor = (platform) => {
+  try {
+    const stored = localStorage.getItem('atlas_platform_colors')
+    const colors = stored ? JSON.parse(stored) : {}
+    return colors[platform] || DEFAULT_PLATFORM_COLORS[platform]
+  } catch {
+    return DEFAULT_PLATFORM_COLORS[platform]
+  }
+}
+
 export default function DashboardsIndex() {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [platformColors, setPlatformColors] = useState(() => ({
+    iiq: getPlatformColor('iiq'),
+    google: getPlatformColor('google'),
+    meraki: getPlatformColor('meraki'),
+  }))
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -26,16 +59,23 @@ export default function DashboardsIndex() {
     fetchStats()
   }, [])
 
-  // Get vendor border class based on user preference
-  const getVendorBorderClass = (vendor) => {
-    const showColors = localStorage.getItem('atlas_vendor_colors') !== 'false'
-    if (!showColors) return ''
-    const colors = {
-      iiq: 'border-l-4 border-l-blue-500',
-      google: 'border-l-4 border-l-emerald-500',
-      meraki: 'border-l-4 border-l-purple-500'
+  // Listen for color changes
+  useEffect(() => {
+    const handleColorsChange = () => {
+      setPlatformColors({
+        iiq: getPlatformColor('iiq'),
+        google: getPlatformColor('google'),
+        meraki: getPlatformColor('meraki'),
+      })
     }
-    return colors[vendor] || ''
+    window.addEventListener('atlas-colors-changed', handleColorsChange)
+    return () => window.removeEventListener('atlas-colors-changed', handleColorsChange)
+  }, [])
+
+  // Get vendor border class using dynamic platform colors
+  const getVendorBorderClass = (vendor) => {
+    const colorKey = platformColors[vendor]
+    return BORDER_COLORS[colorKey] || ''
   }
 
   const dashboards = [
@@ -82,6 +122,7 @@ export default function DashboardsIndex() {
       bg: 'bg-blue-50 dark:bg-blue-950/20',
       border: 'border-blue-200 dark:border-blue-900/50',
       icon: 'text-blue-500',
+      iconBg: 'bg-blue-100 dark:bg-blue-900/30',
       hover: 'hover:border-blue-300 dark:hover:border-blue-700',
       stat: 'text-blue-600 dark:text-blue-400'
     },
@@ -89,6 +130,7 @@ export default function DashboardsIndex() {
       bg: 'bg-emerald-50 dark:bg-emerald-950/20',
       border: 'border-emerald-200 dark:border-emerald-900/50',
       icon: 'text-emerald-500',
+      iconBg: 'bg-emerald-100 dark:bg-emerald-900/30',
       hover: 'hover:border-emerald-300 dark:hover:border-emerald-700',
       stat: 'text-emerald-600 dark:text-emerald-400'
     },
@@ -96,16 +138,48 @@ export default function DashboardsIndex() {
       bg: 'bg-purple-50 dark:bg-purple-950/20',
       border: 'border-purple-200 dark:border-purple-900/50',
       icon: 'text-purple-500',
+      iconBg: 'bg-purple-100 dark:bg-purple-900/30',
       hover: 'hover:border-purple-300 dark:hover:border-purple-700',
       stat: 'text-purple-600 dark:text-purple-400'
+    },
+    amber: {
+      bg: 'bg-amber-50 dark:bg-amber-950/20',
+      border: 'border-amber-200 dark:border-amber-900/50',
+      icon: 'text-amber-500',
+      iconBg: 'bg-amber-100 dark:bg-amber-900/30',
+      hover: 'hover:border-amber-300 dark:hover:border-amber-700',
+      stat: 'text-amber-600 dark:text-amber-400'
+    },
+    rose: {
+      bg: 'bg-rose-50 dark:bg-rose-950/20',
+      border: 'border-rose-200 dark:border-rose-900/50',
+      icon: 'text-rose-500',
+      iconBg: 'bg-rose-100 dark:bg-rose-900/30',
+      hover: 'hover:border-rose-300 dark:hover:border-rose-700',
+      stat: 'text-rose-600 dark:text-rose-400'
+    },
+    cyan: {
+      bg: 'bg-cyan-50 dark:bg-cyan-950/20',
+      border: 'border-cyan-200 dark:border-cyan-900/50',
+      icon: 'text-cyan-500',
+      iconBg: 'bg-cyan-100 dark:bg-cyan-900/30',
+      hover: 'hover:border-cyan-300 dark:hover:border-cyan-700',
+      stat: 'text-cyan-600 dark:text-cyan-400'
     },
     gray: {
       bg: 'bg-slate-50 dark:bg-slate-900',
       border: 'border-slate-200 dark:border-slate-800',
       icon: 'text-slate-400',
+      iconBg: 'bg-slate-100 dark:bg-slate-800',
       hover: 'hover:border-slate-300 dark:hover:border-slate-700',
       stat: 'text-slate-400'
     }
+  }
+
+  // Helper to get color classes for a platform
+  const getPlatformColorClasses = (platformId) => {
+    const colorKey = platformColors[platformId] || 'gray'
+    return colorClasses[colorKey] || colorClasses.gray
   }
 
   return (
@@ -135,8 +209,8 @@ export default function DashboardsIndex() {
           {/* IIQ Assets */}
           <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
             <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                <Monitor className="h-4 w-4 text-blue-500" />
+              <div className={`p-2 ${getPlatformColorClasses('iiq').iconBg} rounded-lg`}>
+                <Monitor className={`h-4 w-4 ${getPlatformColorClasses('iiq').icon}`} />
               </div>
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">IIQ Assets</span>
             </div>
@@ -150,14 +224,14 @@ export default function DashboardsIndex() {
           {/* Assigned (IIQ) */}
           <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
             <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                <Users className="h-4 w-4 text-blue-500" />
+              <div className={`p-2 ${getPlatformColorClasses('iiq').iconBg} rounded-lg`}>
+                <Users className={`h-4 w-4 ${getPlatformColorClasses('iiq').icon}`} />
               </div>
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Assigned</span>
             </div>
             {stats.iiq?.configured ? (
               <>
-              <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{stats.iiq?.assigned}</p>
+              <p className={`text-3xl font-bold ${getPlatformColorClasses('iiq').stat}`}>{stats.iiq?.assigned}</p>
               <p className="text-xs text-slate-400 mt-1">{stats.iiq?.unassigned} unassigned</p>
               </>
             ) : (
@@ -168,14 +242,14 @@ export default function DashboardsIndex() {
           {/* Google Active */}
           <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('google')}`}>
             <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
-                <CheckCircle className="h-4 w-4 text-emerald-500" />
+              <div className={`p-2 ${getPlatformColorClasses('google').iconBg} rounded-lg`}>
+                <CheckCircle className={`h-4 w-4 ${getPlatformColorClasses('google').icon}`} />
               </div>
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Google Active</span>
             </div>
             {stats.google?.configured ? (
               <>
-              <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{stats.google?.active}</p>
+              <p className={`text-3xl font-bold ${getPlatformColorClasses('google').stat}`}>{stats.google?.active}</p>
               <p className="text-xs text-slate-400 mt-1">of {stats.google?.total_devices} in Google</p>
               </>
             ) : (
@@ -211,7 +285,7 @@ export default function DashboardsIndex() {
           {dashboards.map((dashboard) => {
             const statsKey = dashboard.id === 'meraki' ? 'network' : dashboard.id
             const isConfigured = stats[statsKey]?.configured
-            const colors = isConfigured ? colorClasses[dashboard.color] : colorClasses.gray
+            const colors = isConfigured ? getPlatformColorClasses(dashboard.id) : colorClasses.gray
             const Icon = dashboard.icon
 
             const CardContent = (
@@ -277,14 +351,13 @@ export default function DashboardsIndex() {
               </>
             )
 
-            const vendorBorder = isConfigured ? getVendorBorderClass(dashboard.id) : ''
             const linkTo = isConfigured ? dashboard.to : dashboard.settingsTo
 
             return (
               <Link
                 key={dashboard.id}
                 to={linkTo}
-                className={`relative p-6 rounded-2xl border-2 transition-all duration-200 ${colors.bg} ${colors.border} ${colors.hover} ${vendorBorder} cursor-pointer block`}
+                className={`relative p-6 rounded-2xl border-2 transition-all duration-200 ${colors.bg} ${colors.border} ${colors.hover} cursor-pointer block`}
               >
                 {CardContent}
               </Link>

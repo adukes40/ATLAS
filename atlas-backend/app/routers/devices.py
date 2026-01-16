@@ -244,7 +244,14 @@ def get_device_360(request: Request, query: str, db: Session = Depends(get_db)):
     # 5. Detect Conflicts
     detected_conflicts = detect_conflicts(iiq_record, google_record)
 
-    # 6. Assemble final 360 Object
+    # 6. Check if any data was found - return 404 if nothing found
+    if not iiq_data and not google_data and not meraki_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No device found for '{query}'"
+        )
+
+    # 7. Assemble final 360 Object
     return {
         "serial": target_serial,
         "identity": {

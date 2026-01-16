@@ -3,7 +3,7 @@ import axios from 'axios'
 import {
   RefreshCw, CheckCircle, AlertCircle, Clock, Loader2,
   X, Calendar, ToggleLeft, ToggleRight, ChevronDown, ChevronUp,
-  Database, ArrowRight, Settings
+  Database, ArrowRight, Settings, Palette, Check
 } from 'lucide-react'
 
 // Constants
@@ -50,32 +50,115 @@ const SERVICE_CONFIG = {
   }
 }
 
-// Color classes for each service
-const COLOR_CLASSES = {
+// Available colors for customization
+const AVAILABLE_COLORS = {
   blue: {
+    name: 'Blue',
     border: 'border-blue-200 dark:border-blue-800',
     bg: 'bg-blue-50/50 dark:bg-blue-900/20',
     text: 'text-blue-600 dark:text-blue-400',
     badge: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+    dot: 'bg-blue-500',
+    ring: 'ring-blue-400',
+    button: 'bg-blue-600 hover:bg-blue-700',
   },
   emerald: {
+    name: 'Emerald',
     border: 'border-emerald-200 dark:border-emerald-800',
     bg: 'bg-emerald-50/50 dark:bg-emerald-900/20',
     text: 'text-emerald-600 dark:text-emerald-400',
     badge: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400',
+    dot: 'bg-emerald-500',
+    ring: 'ring-emerald-400',
+    button: 'bg-emerald-600 hover:bg-emerald-700',
   },
   purple: {
+    name: 'Purple',
     border: 'border-purple-200 dark:border-purple-800',
     bg: 'bg-purple-50/50 dark:bg-purple-900/20',
     text: 'text-purple-600 dark:text-purple-400',
     badge: 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400',
+    dot: 'bg-purple-500',
+    ring: 'ring-purple-400',
+    button: 'bg-purple-600 hover:bg-purple-700',
   },
+  amber: {
+    name: 'Amber',
+    border: 'border-amber-200 dark:border-amber-800',
+    bg: 'bg-amber-50/50 dark:bg-amber-900/20',
+    text: 'text-amber-600 dark:text-amber-400',
+    badge: 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
+    dot: 'bg-amber-500',
+    ring: 'ring-amber-400',
+    button: 'bg-amber-600 hover:bg-amber-700',
+  },
+  rose: {
+    name: 'Rose',
+    border: 'border-rose-200 dark:border-rose-800',
+    bg: 'bg-rose-50/50 dark:bg-rose-900/20',
+    text: 'text-rose-600 dark:text-rose-400',
+    badge: 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400',
+    dot: 'bg-rose-500',
+    ring: 'ring-rose-400',
+    button: 'bg-rose-600 hover:bg-rose-700',
+  },
+  cyan: {
+    name: 'Cyan',
+    border: 'border-cyan-200 dark:border-cyan-800',
+    bg: 'bg-cyan-50/50 dark:bg-cyan-900/20',
+    text: 'text-cyan-600 dark:text-cyan-400',
+    badge: 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400',
+    dot: 'bg-cyan-500',
+    ring: 'ring-cyan-400',
+    button: 'bg-cyan-600 hover:bg-cyan-700',
+  },
+}
+
+// Default colors for each service
+const DEFAULT_COLORS = {
+  iiq: 'blue',
+  google: 'emerald',
+  meraki: 'purple',
+}
+
+// Helper to get platform colors from localStorage
+const getPlatformColor = (platform) => {
+  try {
+    const stored = localStorage.getItem('atlas_platform_colors')
+    const colors = stored ? JSON.parse(stored) : {}
+    return colors[platform] || DEFAULT_COLORS[platform] || 'blue'
+  } catch {
+    return DEFAULT_COLORS[platform] || 'blue'
+  }
+}
+
+// Helper to save platform color
+const savePlatformColor = (platform, color) => {
+  try {
+    const stored = localStorage.getItem('atlas_platform_colors')
+    const colors = stored ? JSON.parse(stored) : {}
+    colors[platform] = color
+    localStorage.setItem('atlas_platform_colors', JSON.stringify(colors))
+    // Dispatch event for other components
+    window.dispatchEvent(new CustomEvent('atlas-colors-changed', {
+      detail: { platform, color, allColors: colors }
+    }))
+  } catch (e) {
+    console.error('Failed to save platform color:', e)
+  }
 }
 
 export default function SyncPanel({ service }) {
   const config = SERVICE_CONFIG[service] || { name: service, color: 'blue', description: '' }
-  const colors = COLOR_CLASSES[config.color]
   const dataTables = DATA_TABLES[service] || []
+
+  // Color state - get from localStorage or use default
+  const [selectedColor, setSelectedColor] = useState(() => getPlatformColor(service))
+  const colors = AVAILABLE_COLORS[selectedColor] || AVAILABLE_COLORS.blue
+
+  // Color picker state
+  const [showColorPicker, setShowColorPicker] = useState(false)
+  const colorPickerRef = useRef(null)
 
   // State
   const [syncStatus, setSyncStatus] = useState(null)
@@ -90,6 +173,26 @@ export default function SyncPanel({ service }) {
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [selectedHours, setSelectedHours] = useState([])
   const [savingSchedule, setSavingSchedule] = useState(false)
+
+  // Close color picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target)) {
+        setShowColorPicker(false)
+      }
+    }
+    if (showColorPicker) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showColorPicker])
+
+  // Handle color selection
+  const handleColorSelect = (color) => {
+    setSelectedColor(color)
+    savePlatformColor(service, color)
+    setShowColorPicker(false)
+  }
 
   // Refs
   const pollingRef = useRef(null)
@@ -430,6 +533,38 @@ export default function SyncPanel({ service }) {
           </div>
           <div className="flex items-center gap-2">
             {getStatusIcon()}
+            {/* Color Picker */}
+            <div className="relative" ref={colorPickerRef}>
+              <button
+                onClick={() => setShowColorPicker(!showColorPicker)}
+                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center`}
+                title="Change color"
+              >
+                <span className={`w-5 h-5 rounded-full ${colors.dot} block`} />
+              </button>
+              {showColorPicker && (
+                <div className="absolute right-0 top-8 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 p-4 z-20">
+                  <div className="grid grid-cols-3 gap-4">
+                    {Object.entries(AVAILABLE_COLORS).map(([key, colorOption]) => (
+                      <button
+                        key={key}
+                        onClick={() => handleColorSelect(key)}
+                        className={`w-9 h-9 rounded-full ${colorOption.dot} flex items-center justify-center transition-all ${
+                          selectedColor === key
+                            ? 'ring-2 ring-offset-2 ring-offset-white dark:ring-offset-slate-800 ' + colorOption.ring
+                            : 'hover:scale-110'
+                        }`}
+                        title={colorOption.name}
+                      >
+                        {selectedColor === key && (
+                          <Check className="h-4 w-4 text-white" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <button
               onClick={openScheduleModal}
               className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
@@ -741,11 +876,7 @@ export default function SyncPanel({ service }) {
                       onClick={() => toggleHour(hour)}
                       className={`py-2 px-1 rounded-lg text-sm font-medium transition-all ${
                         selectedHours.includes(hour)
-                          ? `${colors.badge} ring-2 ring-offset-1 ring-offset-white dark:ring-offset-slate-800 ${
-                              config.color === 'blue' ? 'ring-blue-400' :
-                              config.color === 'emerald' ? 'ring-emerald-400' :
-                              'ring-purple-400'
-                            }`
+                          ? `${colors.badge} ring-2 ring-offset-1 ring-offset-white dark:ring-offset-slate-800 ${colors.ring}`
                           : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
                       }`}
                     >
@@ -767,11 +898,7 @@ export default function SyncPanel({ service }) {
                         onClick={() => toggleHour(hour)}
                         className={`py-2 px-1 rounded-lg text-sm font-medium transition-all ${
                           selectedHours.includes(hour)
-                            ? `${colors.badge} ring-2 ring-offset-1 ring-offset-white dark:ring-offset-slate-800 ${
-                                config.color === 'blue' ? 'ring-blue-400' :
-                                config.color === 'emerald' ? 'ring-emerald-400' :
-                                'ring-purple-400'
-                              }`
+                            ? `${colors.badge} ring-2 ring-offset-1 ring-offset-white dark:ring-offset-slate-800 ${colors.ring}`
                             : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
                         }`}
                       >
@@ -794,11 +921,7 @@ export default function SyncPanel({ service }) {
               <button
                 onClick={saveScheduleHours}
                 disabled={savingSchedule}
-                className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 ${
-                  config.color === 'blue' ? 'bg-blue-600 hover:bg-blue-700' :
-                  config.color === 'emerald' ? 'bg-emerald-600 hover:bg-emerald-700' :
-                  'bg-purple-600 hover:bg-purple-700'
-                }`}
+                className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 ${colors.button}`}
               >
                 {savingSchedule ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
