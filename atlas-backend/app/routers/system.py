@@ -227,7 +227,7 @@ async def apply_update(
     # Run update.sh
     try:
         result = subprocess.run(
-            ["sudo", "/opt/atlas/update.sh", GITHUB_BRANCH],
+            ["/usr/bin/sudo", "/opt/atlas/update.sh", GITHUB_BRANCH],
             cwd="/opt/atlas",
             capture_output=True,
             text=True,
