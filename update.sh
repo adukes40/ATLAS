@@ -208,6 +208,17 @@ if [ -f "$SYSTEMD_FILE" ]; then
         systemctl daemon-reload
         echo -e "${GREEN}Systemd service updated${NC}"
     fi
+
+    # Check if PATH includes /usr/bin (needed for git)
+    if grep -q 'Environment="PATH=' "$SYSTEMD_FILE"; then
+        CURRENT_ENV_PATH=$(grep 'Environment="PATH=' "$SYSTEMD_FILE")
+        if [[ ! "$CURRENT_ENV_PATH" =~ "/usr/bin" ]]; then
+            echo -e "${YELLOW}Updating PATH in systemd service (adding /usr/bin for git)...${NC}"
+            sed -i 's|Environment="PATH=/opt/atlas/atlas-backend/venv/bin"|Environment="PATH=/opt/atlas/atlas-backend/venv/bin:/usr/bin:/bin"|' "$SYSTEMD_FILE"
+            systemctl daemon-reload
+            echo -e "${GREEN}PATH updated${NC}"
+        fi
+    fi
 else
     echo -e "${YELLOW}Systemd service file not found, skipping${NC}"
 fi
