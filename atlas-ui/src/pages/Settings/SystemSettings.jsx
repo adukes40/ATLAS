@@ -89,27 +89,68 @@ export default function SystemSettings() {
 
     setUpdating(true)
     setUpdateOutput(null)
+
     try {
       const res = await axios.post('/api/system/updates/apply')
-      setUpdateOutput(res.data)
 
-      // If successful, refresh data after a delay
-      if (res.data.status === 'success') {
-        // Wait a moment for the service to restart, then refresh
-        setTimeout(async () => {
+      // Backend returns immediately with status "started"
+      if (res.data.status === 'started') {
+        setUpdateOutput({
+          status: 'updating',
+          message: res.data.message || 'Update started. Waiting for service to restart...'
+        })
+
+        // Poll for service to come back up
+        const pollForService = async (attempts = 0) => {
+          const maxAttempts = 60 // 2 minutes max
+          const pollInterval = 2000 // 2 seconds
+
+          if (attempts >= maxAttempts) {
+            setUpdateOutput({
+              status: 'failed',
+              output: 'Timed out waiting for service to restart. Please check the server manually.'
+            })
+            setUpdating(false)
+            return
+          }
+
           try {
             const [versionRes, updateRes, logsRes] = await Promise.all([
               axios.get('/api/system/version'),
               axios.get('/api/system/updates/check?force=true'),
               axios.get('/api/system/updates/log')
             ])
+
+            // Service is back up - check if version changed
+            const newVersion = versionRes.data?.version
+            const oldVersion = version?.version
+
             setVersion(versionRes.data)
             setUpdateInfo(updateRes.data)
             setUpdateLogs(logsRes.data)
+
+            if (newVersion !== oldVersion) {
+              setUpdateOutput({
+                status: 'success',
+                from_version: oldVersion,
+                to_version: newVersion,
+                output: 'Update completed successfully!'
+              })
+            } else {
+              setUpdateOutput({
+                status: 'success',
+                message: 'Service restarted. Check update history for details.'
+              })
+            }
+            setUpdating(false)
           } catch (e) {
-            // Service might still be restarting
+            // Service still down, keep polling
+            setTimeout(() => pollForService(attempts + 1), pollInterval)
           }
-        }, 5000)
+        }
+
+        // Start polling after a brief delay for service to stop
+        setTimeout(() => pollForService(0), 3000)
       }
     } catch (err) {
       console.error('Failed to apply update:', err)
@@ -117,7 +158,6 @@ export default function SystemSettings() {
         status: 'failed',
         output: err.response?.data?.detail || err.message
       })
-    } finally {
       setUpdating(false)
     }
   }
@@ -294,22 +334,34 @@ export default function SystemSettings() {
           <div className={`mt-4 p-4 rounded-lg border ${
             updateOutput.status === 'success'
               ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800'
+              : updateOutput.status === 'updating'
+              ? 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800'
               : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'
           }`}>
             <div className="flex items-center gap-2 mb-2">
               {updateOutput.status === 'success' ? (
                 <CheckCircle className="h-4 w-4 text-emerald-500" />
+              ) : updateOutput.status === 'updating' ? (
+                <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
               ) : (
                 <XCircle className="h-4 w-4 text-red-500" />
               )}
               <span className={`font-medium ${
                 updateOutput.status === 'success'
                   ? 'text-emerald-800 dark:text-emerald-200'
+                  : updateOutput.status === 'updating'
+                  ? 'text-blue-800 dark:text-blue-200'
                   : 'text-red-800 dark:text-red-200'
               }`}>
-                Update {updateOutput.status === 'success' ? 'Successful' : 'Failed'}
+                {updateOutput.status === 'success' ? 'Update Successful' :
+                 updateOutput.status === 'updating' ? 'Updating...' : 'Update Failed'}
               </span>
             </div>
+            {updateOutput.message && (
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+                {updateOutput.message}
+              </p>
+            )}
             {updateOutput.from_version && updateOutput.to_version && (
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                 {updateOutput.from_version} → {updateOutput.to_version}
