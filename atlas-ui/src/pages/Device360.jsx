@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import {
   Search, Server, Monitor, Wifi, AlertTriangle, CheckCircle,
@@ -41,6 +42,7 @@ const getPlatformColor = (platform) => {
 }
 
 export default function Device360() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [serial, setSerial] = useState('')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -58,6 +60,42 @@ export default function Device360() {
     meraki: getPlatformColor('meraki'),
   }))
   const { integrations } = useIntegrations()
+
+  // Perform device lookup
+  const performSearch = useCallback(async (query) => {
+    if (!query) return
+
+    setLoading(true)
+    setError(null)
+    setData(null)
+    setNotFound(false)
+    setSearchedQuery(query.trim())
+
+    try {
+      const response = await axios.get(`/api/device/${query}`)
+      setData(response.data)
+    } catch (err) {
+      console.error(err)
+      if (err.response?.status === 404) {
+        setNotFound(true)
+      } else {
+        setError("Unable to search. Please try again or contact support.")
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Check for serial in URL query params on mount
+  useEffect(() => {
+    const serialParam = searchParams.get('serial')
+    if (serialParam) {
+      setSerial(serialParam)
+      performSearch(serialParam)
+      // Clear the URL param after loading
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams, performSearch])
 
   // Listen for settings and color changes
   useEffect(() => {
@@ -88,29 +126,9 @@ export default function Device360() {
     return BORDER_COLORS[colorKey] || ''
   }
 
-  const handleSearch = async (e) => {
+  const handleSearch = (e) => {
     e.preventDefault()
-    if (!serial) return
-
-    setLoading(true)
-    setError(null)
-    setData(null)
-    setNotFound(false)
-    setSearchedQuery(serial.trim())
-
-    try {
-      const response = await axios.get(`/api/device/${serial}`)
-      setData(response.data)
-    } catch (err) {
-      console.error(err)
-      if (err.response?.status === 404) {
-        setNotFound(true)
-      } else {
-        setError("Unable to search. Please try again or contact support.")
-      }
-    } finally {
-      setLoading(false)
-    }
+    performSearch(serial)
   }
 
   const handleSync = async () => {

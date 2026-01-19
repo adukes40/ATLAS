@@ -210,7 +210,8 @@ export default function ReportTable({
   onExportCSV,
   exportFileName,
   customRowRender,
-  emptyMessage
+  emptyMessage,
+  onRowClick
 }) {
   // Handle column sort
   const handleSort = (column) => {
@@ -352,7 +353,11 @@ export default function ReportTable({
                 data.map((row, idx) => customRowRender(row, idx))
               ) : (
                 data.map((row, idx) => (
-                  <tr key={idx} className="border-t border-slate-100 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-700/50 transition-colors">
+                  <tr
+                    key={idx}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    className={`border-t border-slate-100 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-700/50 transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
+                  >
                     {columns.map((col) => (
                       <td key={col.key} className="py-3 px-4 text-slate-700 dark:text-slate-300 whitespace-nowrap">
                         {col.render ? col.render(row[col.key], row) : row[col.key] || '-'}

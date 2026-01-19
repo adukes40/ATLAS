@@ -1,7 +1,16 @@
+import { useNavigate } from 'react-router-dom'
 import ReportTable from '../../components/ReportTable'
 import useReportQuery from '../../hooks/useReportQuery'
 
 export default function DeviceInventory() {
+  const navigate = useNavigate()
+
+  const handleRowClick = (row) => {
+    if (row.serial_number) {
+      navigate(`/?serial=${encodeURIComponent(row.serial_number)}`)
+    }
+  }
+
   const report = useReportQuery('device-inventory', {
     defaultFilters: {
       iiq_status: null,
@@ -62,6 +71,7 @@ export default function DeviceInventory() {
       loading={report.loading}
       onExportCSV={report.handleExportCSV}
       emptyMessage="No devices found matching your filters"
+      onRowClick={handleRowClick}
     />
   )
 }
