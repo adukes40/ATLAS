@@ -9,7 +9,9 @@ from typing import Optional, List
 from slowapi import Limiter
 
 from app.database import get_db
-from app.models import IIQAsset, IIQUser, GoogleDevice, GoogleUser, NetworkCache, MerakiDevice, MerakiNetwork, MerakiSSID
+from pydantic import BaseModel, field_validator
+from app.auth import require_auth
+from app.models import IIQAsset, IIQUser, GoogleDevice, GoogleUser, NetworkCache, MerakiDevice, MerakiNetwork, MerakiSSID, SavedReport
 from app.utils import (
     get_user_identifier,
     parse_multi_filter,
@@ -1325,6 +1327,231 @@ def export_custom_report_csv(
         data.append(row_dict)
 
     return stream_csv(data, csv_columns, f"custom_{source}_{datetime.now().strftime('%Y%m%d')}.csv")
+
+
+# =============================================================================
+# SAVED REPORTS CRUD
+# =============================================================================
+
+
+class SavedReportCreate(BaseModel):
+    name: str
+    folder: Optional[str] = None
+    config: dict
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Report name must not be empty")
+        if len(v) > 255:
+            raise ValueError("Report name must be 255 characters or fewer")
+        return v
+
+    @field_validator("folder")
+    @classmethod
+    def folder_clean(cls, v):
+        if v is not None:
+            v = v.strip()[:255]
+            return v if v else None
+        return None
+
+    @field_validator("config")
+    @classmethod
+    def validate_config(cls, v: dict) -> dict:
+        columns = v.get("columns")
+        if not columns or not isinstance(columns, list) or len(columns) == 0:
+            raise ValueError("Config must contain a non-empty 'columns' array")
+        return v
+
+
+class SavedReportUpdate(BaseModel):
+    name: Optional[str] = None
+    folder: Optional[str] = None
+    config: Optional[dict] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("Report name must not be empty")
+        if len(v) > 255:
+            raise ValueError("Report name must be 255 characters or fewer")
+        return v
+
+    @field_validator("config")
+    @classmethod
+    def validate_config(cls, v: Optional[dict]) -> Optional[dict]:
+        if v is None:
+            return v
+        columns = v.get("columns")
+        if not columns or not isinstance(columns, list) or len(columns) == 0:
+            raise ValueError("Config must contain a non-empty 'columns' array")
+        return v
+
+
+@router.get("/saved/folders/list")
+@limiter.limit("30/minute")
+def list_saved_report_folders(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """List unique non-null folder names, ordered alphabetically."""
+    folders = (
+        db.query(SavedReport.folder)
+        .filter(SavedReport.folder.isnot(None), SavedReport.folder != "")
+        .distinct()
+        .order_by(SavedReport.folder)
+        .all()
+    )
+    return [f[0] for f in folders]
+
+
+@router.get("/saved")
+@limiter.limit("30/minute")
+def list_saved_reports(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """List all saved reports without config (ordered by folder then name)."""
+    reports = (
+        db.query(SavedReport)
+        .order_by(SavedReport.folder, SavedReport.name)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "folder": r.folder,
+            "created_by": r.created_by,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        }
+        for r in reports
+    ]
+
+
+@router.get("/saved/{report_id}")
+@limiter.limit("20/minute")
+def get_saved_report(
+    request: Request,
+    report_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """Get a single saved report with its config."""
+    report = db.query(SavedReport).filter(SavedReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Saved report not found")
+    return {
+        "id": report.id,
+        "name": report.name,
+        "folder": report.folder,
+        "config": report.config,
+        "created_by": report.created_by,
+        "created_at": report.created_at.isoformat() if report.created_at else None,
+        "updated_at": report.updated_at.isoformat() if report.updated_at else None,
+    }
+
+
+@router.post("/saved")
+@limiter.limit("10/minute")
+def create_saved_report(
+    request: Request,
+    body: SavedReportCreate,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """Create a new saved report."""
+    report = SavedReport(
+        name=body.name,
+        folder=body.folder,
+        config=body.config,
+        created_by=user.get("email", "unknown"),
+    )
+    db.add(report)
+    try:
+        db.commit()
+        db.refresh(report)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    return {
+        "id": report.id,
+        "name": report.name,
+        "folder": report.folder,
+        "created_by": report.created_by,
+        "created_at": report.created_at.isoformat() if report.created_at else None,
+    }
+
+
+@router.put("/saved/{report_id}")
+@limiter.limit("10/minute")
+def update_saved_report(
+    request: Request,
+    report_id: int,
+    body: SavedReportUpdate,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """Update an existing saved report. Only the creator or an admin can update."""
+    report = db.query(SavedReport).filter(SavedReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Saved report not found")
+    if report.created_by != user.get("email") and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to update this report")
+    if body.name is not None:
+        report.name = body.name
+    if body.folder is not None:
+        report.folder = body.folder.strip() if body.folder else None
+    if body.config is not None:
+        report.config = body.config
+    try:
+        db.commit()
+        db.refresh(report)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    return {
+        "id": report.id,
+        "name": report.name,
+        "folder": report.folder,
+        "config": report.config,
+        "created_by": report.created_by,
+        "created_at": report.created_at.isoformat() if report.created_at else None,
+        "updated_at": report.updated_at.isoformat() if report.updated_at else None,
+    }
+
+
+@router.delete("/saved/{report_id}")
+@limiter.limit("10/minute")
+def delete_saved_report(
+    request: Request,
+    report_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """Delete a saved report. Only the creator or an admin can delete."""
+    report = db.query(SavedReport).filter(SavedReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Saved report not found")
+    if report.created_by != user.get("email") and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to delete this report")
+    report_id_val = report.id
+    db.delete(report)
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    return {"status": "deleted", "id": report_id_val}
 
 
 # =============================================================================
