@@ -18,6 +18,26 @@ SECRET_KEYS = {
     "oauth_client_secret",
 }
 
+# Allowed setting keys (rejects any key not in this set)
+ALLOWED_KEYS = {
+    # IIQ
+    "iiq_url", "iiq_token", "iiq_site_id", "iiq_product_id",
+    # Google
+    "google_admin_email", "google_credentials_json",
+    # Meraki
+    "meraki_api_key", "meraki_org_id",
+    # OAuth
+    "oauth_enabled", "oauth_client_id", "oauth_client_secret",
+    "oauth_allowed_domain", "oauth_admin_group", "oauth_user_group",
+    # District / Display
+    "district_name", "support_email", "schedule_timezone",
+    # Branding
+    "branding_login_icon", "branding_favicon",
+}
+
+# Maximum value size in bytes (500KB - generous for base64 icons)
+MAX_SETTING_VALUE_SIZE = 500 * 1024
+
 
 def get_setting(db: Session, key: str) -> Optional[str]:
     """Get a single setting value, decrypting if necessary."""
@@ -48,6 +68,10 @@ def get_all_settings(db: Session) -> Dict[str, Any]:
 
 def set_setting(db: Session, key: str, value: str, user_id: Optional[str] = None) -> None:
     """Set a single setting, encrypting if it's a secret."""
+    if key not in ALLOWED_KEYS:
+        raise ValueError(f"Unknown setting key: {key}")
+    if value and len(value) > MAX_SETTING_VALUE_SIZE:
+        raise ValueError(f"Setting value too large for key '{key}'. Maximum size is {MAX_SETTING_VALUE_SIZE // 1024}KB.")
     is_secret = key in SECRET_KEYS
     stored_value = encrypt_value(value) if is_secret and value else value
 

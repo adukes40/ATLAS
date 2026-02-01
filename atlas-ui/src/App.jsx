@@ -63,6 +63,24 @@ function AppLayout() {
     }
   }, [darkMode]);
 
+  // Dynamic favicon from branding
+  useEffect(() => {
+    const setFavicon = async () => {
+      try {
+        const res = await axios.get('/auth/me')
+        if (res.data?.branding_favicon) {
+          const link = document.querySelector("link[rel~='icon']")
+          if (link) {
+            link.href = res.data.branding_favicon
+          }
+        }
+      } catch (err) {
+        // Ignore - use default favicon
+      }
+    }
+    setFavicon()
+  }, [])
+
   // Show login page if not authenticated
   if (!isAuthenticated) {
     return <Login />

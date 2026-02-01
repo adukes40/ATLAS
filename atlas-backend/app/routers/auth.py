@@ -3,6 +3,7 @@ ATLAS Authentication Router
 Handles both local authentication and Google OAuth.
 """
 import secrets
+from urllib.parse import quote
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
@@ -23,8 +24,21 @@ from app.services.local_auth import (
     authenticate_user,
     change_password,
 )
+from app.services.settings_service import get_setting
+
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+# Rate limiter keyed by IP for auth endpoints (no user identity yet)
+auth_limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+def _is_https(request: Request) -> bool:
+    """Check if the request is over HTTPS, accounting for reverse proxy headers."""
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    return forwarded_proto == "https" or request.url.scheme == "https"
 
 
 # =============================================================================
@@ -44,6 +58,7 @@ class ChangePasswordRequest(BaseModel):
 # Local Authentication
 # =============================================================================
 @router.post("/local/login")
+@auth_limiter.limit("5/minute")
 async def local_login(request: Request, credentials: LocalLoginRequest):
     """
     Authenticate with local username/password.
@@ -83,7 +98,7 @@ async def local_login(request: Request, credentials: LocalLoginRequest):
             value=session_token,
             max_age=SESSION_MAX_AGE,
             httponly=True,
-            secure=request.url.scheme == "https",
+            secure=_is_https(request),
             samesite="lax"
         )
         return response
@@ -137,7 +152,7 @@ async def change_user_password(
             value=session_token,
             max_age=SESSION_MAX_AGE,
             httponly=True,
-            secure=request.url.scheme == "https",
+            secure=_is_https(request),
             samesite="lax"
         )
         return response
@@ -229,7 +244,7 @@ async def auth_callback(request: Request):
         if not is_valid:
             # Redirect to login with error
             return RedirectResponse(
-                url=f"/?auth_error={error_message}",
+                url=f"/?auth_error={quote(error_message)}",
                 status_code=302
             )
 
@@ -251,7 +266,7 @@ async def auth_callback(request: Request):
             value=session_token,
             max_age=SESSION_MAX_AGE,
             httponly=True,
-            secure=request.url.scheme == "https",
+            secure=_is_https(request),
             samesite="lax"
         )
         return response
@@ -260,7 +275,7 @@ async def auth_callback(request: Request):
         raise
     except Exception as e:
         print(f"[Auth] OAuth callback error: {e}")
-        raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
+        raise HTTPException(status_code=400, detail="Authentication failed. Please try again.")
 
 
 @router.get("/logout")
@@ -275,6 +290,7 @@ async def logout(request: Request):
 
 
 @router.get("/me")
+@auth_limiter.limit("30/minute")
 async def get_me(request: Request):
     """
     Returns current authenticated user info.
@@ -283,12 +299,21 @@ async def get_me(request: Request):
     user = get_current_user(request)
     oauth_settings = get_oauth_settings()
 
+    db = SessionLocal()
+    try:
+        branding_login_icon = get_setting(db, "branding_login_icon")
+        branding_favicon = get_setting(db, "branding_favicon")
+    finally:
+        db.close()
+
     if not user:
         return {
             "authenticated": False,
             "user": None,
             "oauth_enabled": oauth_settings.get("enabled", False),
             "allowed_domain": oauth_settings.get("allowed_domain"),
+            "branding_login_icon": branding_login_icon or None,
+            "branding_favicon": branding_favicon or None,
         }
 
     return {
@@ -304,4 +329,6 @@ async def get_me(request: Request):
         "must_change_password": user.get("must_change_password", False),
         "oauth_enabled": oauth_settings.get("enabled", False),
         "allowed_domain": oauth_settings.get("allowed_domain"),
+        "branding_login_icon": branding_login_icon or None,
+        "branding_favicon": branding_favicon or None,
     }

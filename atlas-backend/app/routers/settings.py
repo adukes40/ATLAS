@@ -116,7 +116,10 @@ async def update_settings(
     db = SessionLocal()
     try:
         user_id = current_user.get("user_id") or current_user.get("email")
-        set_multiple_settings(db, data.settings, user_id)
+        try:
+            set_multiple_settings(db, data.settings, user_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         # If IIQ settings are being saved, seed the sync config table
         iiq_keys = {"iiq_url", "iiq_token", "iiq_site_id"}
@@ -239,7 +242,7 @@ async def _test_google_connection(db) -> TestConnectionResult:
             temp_path = f.name
 
         try:
-            scopes = ['https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly']
+            scopes = ['https://www.googleapis.com/auth/admin.directory.device.chromeos']
             credentials = service_account.Credentials.from_service_account_file(
                 temp_path, scopes=scopes
             )

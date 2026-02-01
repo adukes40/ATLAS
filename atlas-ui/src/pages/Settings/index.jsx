@@ -1,5 +1,5 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Settings, Database, Cloud, Wifi, Users, Key, Monitor, Building, Server } from 'lucide-react'
+import { Settings, Database, Cloud, Wifi, Users, Key, Monitor, Building, Server, Palette } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import IIQSettings from './IIQSettings'
 import GoogleSettings from './GoogleSettings'
@@ -9,9 +9,11 @@ import UsersSettings from './UsersSettings'
 import DisplaySettings from './DisplaySettings'
 import DistrictSettings from './DistrictSettings'
 import SystemSettings from './SystemSettings'
+import BrandingSettings from './BrandingSettings'
 
 const settingsNav = [
   { to: '/settings/display', icon: Monitor, label: 'Display' },
+  { to: '/settings/branding', icon: Palette, label: 'Branding' },
   { to: '/settings/district', icon: Building, label: 'District Info' },
   { to: '/settings/iiq', icon: Database, label: 'Incident IQ' },
   { to: '/settings/google', icon: Cloud, label: 'Google Admin' },
@@ -78,6 +80,7 @@ export default function SettingsIndex() {
         <Routes>
           <Route index element={<Navigate to="display" replace />} />
           <Route path="display" element={<DisplaySettings />} />
+          <Route path="branding" element={<BrandingSettings />} />
           <Route path="district" element={<DistrictSettings />} />
           <Route path="iiq" element={<IIQSettings />} />
           <Route path="google" element={<GoogleSettings />} />

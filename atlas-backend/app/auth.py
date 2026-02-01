@@ -116,7 +116,7 @@ def get_admin_service():
             temp_path = f.name
 
         try:
-            scopes = ['https://www.googleapis.com/auth/admin.directory.group.member.readonly']
+            scopes = ['https://www.googleapis.com/auth/admin.directory.group.member']
             credentials = service_account.Credentials.from_service_account_file(
                 temp_path, scopes=scopes
             )

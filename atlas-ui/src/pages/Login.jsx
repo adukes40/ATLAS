@@ -4,13 +4,18 @@
  * When OAuth is enabled, shows Google button primarily with toggle for local login.
  * When OAuth is disabled, shows local login form only.
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { LogIn, AlertCircle, Shield, User, Lock, Loader2 } from 'lucide-react'
 
 export default function Login() {
-  const { localLogin, googleLogin, error, clearError, loading, oauthEnabled } = useAuth()
-  const [showLocalLogin, setShowLocalLogin] = useState(!oauthEnabled)
+  const { localLogin, googleLogin, error, clearError, loading, oauthEnabled, brandingLoginIcon } = useAuth()
+  const [showLocalLogin, setShowLocalLogin] = useState(false)
+
+  // When oauthEnabled resolves, default to Google SSO if enabled
+  useEffect(() => {
+    setShowLocalLogin(!oauthEnabled)
+  }, [oauthEnabled])
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [localLoading, setLocalLoading] = useState(false)
@@ -72,7 +77,11 @@ export default function Login() {
 
         {/* Sign In Section */}
         <div className="text-center mb-6">
-          <Shield className="h-12 w-12 text-blue-600 dark:text-blue-400 mx-auto mb-4" />
+          {brandingLoginIcon ? (
+            <img src={brandingLoginIcon} alt="Logo" className="h-12 w-12 mx-auto mb-4 object-contain" />
+          ) : (
+            <Shield className="h-12 w-12 text-blue-600 dark:text-blue-400 mx-auto mb-4" />
+          )}
           <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-100 mb-2">
             Sign in to continue
           </h2>

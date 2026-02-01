@@ -13,6 +13,8 @@ export function AuthProvider({ children }) {
   const [error, setError] = useState(null)
   const [mustChangePassword, setMustChangePassword] = useState(false)
   const [oauthEnabled, setOauthEnabled] = useState(false)
+  const [brandingLoginIcon, setBrandingLoginIcon] = useState(null)
+  const [brandingFavicon, setBrandingFavicon] = useState(null)
 
   // Check auth status on mount
   useEffect(() => {
@@ -45,6 +47,8 @@ export function AuthProvider({ children }) {
       }
 
       setOauthEnabled(data.oauth_enabled || false)
+      setBrandingLoginIcon(data.branding_login_icon || null)
+      setBrandingFavicon(data.branding_favicon || null)
     } catch (err) {
       console.error('Auth check failed:', err)
       setUser(null)
@@ -107,6 +111,8 @@ export function AuthProvider({ children }) {
     error,
     mustChangePassword,
     oauthEnabled,
+    brandingLoginIcon,
+    brandingFavicon,
     localLogin,
     googleLogin,
     login: googleLogin, // backward compatibility

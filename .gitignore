@@ -1,6 +1,9 @@
 # Claude AI files
 CLAUDE.md
 
+# Git config
+.gitconfig
+
 # Environment files with secrets
 .env
 .env.*
