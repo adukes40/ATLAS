@@ -3,9 +3,10 @@ Reports Router - Pre-canned and custom report generation with export capabilitie
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_, desc, asc, cast, Float, literal_column
+from sqlalchemy import func, and_, or_, desc, asc, cast, Float, String as SAString, literal_column
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Literal
+import math
 from slowapi import Limiter
 
 from app.database import get_db
@@ -1177,6 +1178,469 @@ CUSTOM_REPORT_COLUMNS = {
     }
 }
 
+
+# =============================================================================
+# MULTI-SOURCE CUSTOM REPORT QUERY ENGINE
+# =============================================================================
+
+# Multi-source column whitelist with compatibility info
+MULTI_SOURCE_COLUMNS = {
+    "iiq_assets": {
+        "label": "IIQ Assets",
+        "join_key": "serial_number",
+        "compatible_with": ["google_devices", "iiq_users"],
+        "columns": {
+            "serial_number": {"label": "Serial Number", "type": "string"},
+            "iiq_id": {"label": "IIQ ID", "type": "string"},
+            "asset_tag": {"label": "Asset Tag", "type": "string"},
+            "model": {"label": "Model", "type": "string"},
+            "model_category": {"label": "Category", "type": "string"},
+            "status": {"label": "Status", "type": "string"},
+            "mac_address": {"label": "MAC Address", "type": "string"},
+            "assigned_user_email": {"label": "User Email", "type": "string"},
+            "assigned_user_id": {"label": "User SIS ID", "type": "string"},
+            "owner_iiq_id": {"label": "Owner IIQ ID", "type": "string"},
+            "assigned_user_name": {"label": "Assigned User", "type": "string"},
+            "assigned_user_role": {"label": "User Role", "type": "string"},
+            "assigned_user_grade": {"label": "Grade", "type": "string"},
+            "assigned_user_homeroom": {"label": "Homeroom", "type": "string"},
+            "owner_location": {"label": "Owner Location", "type": "string"},
+            "location": {"label": "Location", "type": "string"},
+            "ticket_count": {"label": "Tickets", "type": "number"},
+            "fee_balance": {"label": "Fee Balance", "type": "string"},
+            "fee_past_due": {"label": "Fee Past Due", "type": "string"},
+            "last_updated": {"label": "Last Updated", "type": "datetime"},
+        },
+    },
+    "iiq_users": {
+        "label": "IIQ Users",
+        "join_key": "user_id",
+        "compatible_with": ["iiq_assets"],
+        "columns": {
+            "user_id": {"label": "User ID", "type": "string"},
+            "school_id_number": {"label": "School ID", "type": "string"},
+            "email": {"label": "Email", "type": "string"},
+            "full_name": {"label": "Full Name", "type": "string"},
+            "first_name": {"label": "First Name", "type": "string"},
+            "last_name": {"label": "Last Name", "type": "string"},
+            "role_name": {"label": "Role", "type": "string"},
+            "grade": {"label": "Grade", "type": "string"},
+            "location_name": {"label": "Location", "type": "string"},
+            "location_id": {"label": "Location ID", "type": "string"},
+            "homeroom": {"label": "Homeroom", "type": "string"},
+            "fee_balance": {"label": "Fee Balance", "type": "string"},
+            "fee_past_due": {"label": "Past Due", "type": "string"},
+            "is_active": {"label": "Active", "type": "boolean"},
+            "is_deleted": {"label": "Deleted", "type": "boolean"},
+            "last_updated": {"label": "Last Updated", "type": "datetime"},
+        },
+    },
+    "google_devices": {
+        "label": "Google Devices",
+        "join_key": "serial_number",
+        "compatible_with": ["iiq_assets"],
+        "columns": {
+            "serial_number": {"label": "Serial Number", "type": "string"},
+            "google_id": {"label": "Google ID", "type": "string"},
+            "org_unit_path": {"label": "OU Path", "type": "string"},
+            "annotated_asset_id": {"label": "Asset ID", "type": "string"},
+            "annotated_user": {"label": "Annotated User", "type": "string"},
+            "annotated_location": {"label": "Annotated Location", "type": "string"},
+            "model": {"label": "Model", "type": "string"},
+            "status": {"label": "Status", "type": "string"},
+            "aue_date": {"label": "AUE Date", "type": "string"},
+            "os_compliance": {"label": "OS Compliance", "type": "string"},
+            "boot_mode": {"label": "Boot Mode", "type": "string"},
+            "cpu_temp_avg": {"label": "CPU Temp", "type": "number"},
+            "ram_total_gb": {"label": "RAM Total GB", "type": "string"},
+            "ram_free_gb": {"label": "RAM Free GB", "type": "string"},
+            "disk_total_gb": {"label": "Disk Total GB", "type": "string"},
+            "disk_free_gb": {"label": "Disk Free GB", "type": "string"},
+            "battery_health_percent": {"label": "Battery Health %", "type": "number"},
+            "lan_ip": {"label": "LAN IP", "type": "string"},
+            "wan_ip": {"label": "WAN IP", "type": "string"},
+            "os_version": {"label": "OS Version", "type": "string"},
+            "last_sync": {"label": "Last Sync", "type": "datetime"},
+            "ethernet_mac_address": {"label": "Ethernet MAC", "type": "string"},
+            "mac_address": {"label": "MAC Address", "type": "string"},
+            "last_updated": {"label": "Last Updated", "type": "datetime"},
+        },
+    },
+    "meraki_devices": {
+        "label": "Meraki Devices",
+        "join_key": "serial",
+        "compatible_with": ["meraki_networks"],
+        "columns": {
+            "serial": {"label": "Serial", "type": "string"},
+            "name": {"label": "Name", "type": "string"},
+            "model": {"label": "Model", "type": "string"},
+            "mac": {"label": "MAC Address", "type": "string"},
+            "network_id": {"label": "Network ID", "type": "string"},
+            "product_type": {"label": "Product Type", "type": "string"},
+            "firmware": {"label": "Firmware", "type": "string"},
+            "address": {"label": "Address", "type": "string"},
+            "lat": {"label": "Latitude", "type": "string"},
+            "lng": {"label": "Longitude", "type": "string"},
+            "lan_ip": {"label": "LAN IP", "type": "string"},
+            "status": {"label": "Status", "type": "string"},
+            "last_updated": {"label": "Last Updated", "type": "datetime"},
+        },
+    },
+    "meraki_networks": {
+        "label": "Meraki Networks",
+        "join_key": "network_id",
+        "compatible_with": ["meraki_devices"],
+        "columns": {
+            "network_id": {"label": "Network ID", "type": "string"},
+            "name": {"label": "Name", "type": "string"},
+            "url": {"label": "Dashboard URL", "type": "string"},
+            "time_zone": {"label": "Time Zone", "type": "string"},
+            "last_updated": {"label": "Last Updated", "type": "datetime"},
+        },
+    },
+}
+
+# Source name to SQLAlchemy model mapping
+SOURCE_MODELS = {
+    "iiq_assets": IIQAsset,
+    "iiq_users": IIQUser,
+    "google_devices": GoogleDevice,
+    "meraki_devices": MerakiDevice,
+    "meraki_networks": MerakiNetwork,
+}
+
+# Join paths between compatible sources
+JOIN_PATHS = {
+    frozenset(["iiq_assets", "google_devices"]): {
+        "left": "iiq_assets",
+        "right": "google_devices",
+        "left_key": "serial_number",
+        "right_key": "serial_number",
+    },
+    frozenset(["iiq_assets", "iiq_users"]): {
+        "left": "iiq_assets",
+        "right": "iiq_users",
+        "left_key": "owner_iiq_id",
+        "right_key": "user_id",
+    },
+    frozenset(["meraki_devices", "meraki_networks"]): {
+        "left": "meraki_devices",
+        "right": "meraki_networks",
+        "left_key": "network_id",
+        "right_key": "network_id",
+    },
+}
+
+
+# --- Pydantic request models for multi-source query ---
+
+class MultiSourceColumn(BaseModel):
+    source: str
+    field: str
+
+
+class MultiSourceFilter(BaseModel):
+    source: str
+    field: str
+    values: List[str] = []
+    exclude: bool = False
+
+
+class MultiSourceSort(BaseModel):
+    source: str
+    field: str
+    direction: Literal["asc", "desc"] = "asc"
+
+
+class MultiSourceQueryRequest(BaseModel):
+    columns: List[MultiSourceColumn]
+    filters: List[MultiSourceFilter] = []
+    sort: List[MultiSourceSort] = []
+    page: int = 1
+    limit: int = 25
+    search: str = ""
+
+    @field_validator("page")
+    @classmethod
+    def validate_page(cls, v: int) -> int:
+        if v < 1:
+            return 1
+        return v
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit(cls, v: int) -> int:
+        if v < 1:
+            return 1
+        if v > 250:
+            return 250
+        return v
+
+
+# --- Helper: build multi-source query ---
+
+def _build_custom_query(db: Session, columns: List[MultiSourceColumn], filters: List[MultiSourceFilter], sort_rules: List[MultiSourceSort], search: str):
+    """
+    Build a SQLAlchemy query that selects columns across multiple sources,
+    applies outer joins, filters, search, and sorting.
+
+    Returns (query, select_labels, all_sources) where select_labels is a list
+    of "{source}__{field}" label strings in column order.
+    """
+    # 1. Validate columns against whitelist
+    select_labels = []
+    select_cols = []
+    all_sources = set()
+
+    for col in columns:
+        if col.source not in MULTI_SOURCE_COLUMNS:
+            raise HTTPException(status_code=400, detail=f"Unknown source: {col.source}")
+        source_cfg = MULTI_SOURCE_COLUMNS[col.source]
+        if col.field not in source_cfg["columns"]:
+            raise HTTPException(status_code=400, detail=f"Unknown field '{col.field}' in source '{col.source}'")
+        all_sources.add(col.source)
+        model = SOURCE_MODELS[col.source]
+        label = f"{col.source}__{col.field}"
+        select_labels.append(label)
+        select_cols.append(getattr(model, col.field).label(label))
+
+    if not select_cols:
+        raise HTTPException(status_code=400, detail="No valid columns selected")
+
+    # 2. Validate source compatibility - all sources must be reachable via join paths
+    if len(all_sources) > 1:
+        # Build adjacency from JOIN_PATHS
+        reachable = {list(all_sources)[0]}
+        changed = True
+        while changed:
+            changed = False
+            for src in list(all_sources - reachable):
+                for reached in list(reachable):
+                    if frozenset([src, reached]) in JOIN_PATHS:
+                        reachable.add(src)
+                        changed = True
+                        break
+        unreachable = all_sources - reachable
+        if unreachable:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot combine sources: {', '.join(unreachable)} cannot be joined with {', '.join(reachable)}"
+            )
+
+    # 3. Build base query — start with first source, join others
+    # Determine a primary source (the one appearing first in columns)
+    ordered_sources = []
+    for col in columns:
+        if col.source not in ordered_sources:
+            ordered_sources.append(col.source)
+
+    # Also include sources referenced only in filters/sort
+    for f in filters:
+        if f.source not in ordered_sources:
+            if f.source not in MULTI_SOURCE_COLUMNS:
+                raise HTTPException(status_code=400, detail=f"Unknown source in filter: {f.source}")
+            ordered_sources.append(f.source)
+            all_sources.add(f.source)
+    for s in sort_rules:
+        if s.source not in ordered_sources:
+            if s.source not in MULTI_SOURCE_COLUMNS:
+                raise HTTPException(status_code=400, detail=f"Unknown source in sort: {s.source}")
+            ordered_sources.append(s.source)
+            all_sources.add(s.source)
+
+    primary_source = ordered_sources[0]
+    primary_model = SOURCE_MODELS[primary_source]
+
+    query = db.query(*select_cols).select_from(primary_model)
+
+    # Apply outer joins for additional sources
+    joined_sources = {primary_source}
+    for src in ordered_sources[1:]:
+        if src in joined_sources:
+            continue
+        # Find a join path from any already-joined source to this new source
+        join_found = False
+        for joined_src in list(joined_sources):
+            pair = frozenset([joined_src, src])
+            if pair in JOIN_PATHS:
+                jp = JOIN_PATHS[pair]
+                left_model = SOURCE_MODELS[jp["left"]]
+                right_model = SOURCE_MODELS[jp["right"]]
+                left_col = getattr(left_model, jp["left_key"])
+                right_col = getattr(right_model, jp["right_key"])
+                # Determine which side is the new one to join
+                if jp["right"] == src:
+                    query = query.outerjoin(right_model, left_col == right_col)
+                else:
+                    query = query.outerjoin(left_model, right_col == left_col)
+                joined_sources.add(src)
+                join_found = True
+                break
+        if not join_found:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot find join path to source '{src}'"
+            )
+
+    # 4. Apply filters
+    for f in filters:
+        if f.source not in MULTI_SOURCE_COLUMNS:
+            raise HTTPException(status_code=400, detail=f"Unknown source in filter: {f.source}")
+        source_cfg = MULTI_SOURCE_COLUMNS[f.source]
+        if f.field not in source_cfg["columns"]:
+            raise HTTPException(status_code=400, detail=f"Unknown filter field '{f.field}' in source '{f.source}'")
+        model = SOURCE_MODELS[f.source]
+        col_attr = getattr(model, f.field)
+        if f.values:
+            if f.exclude:
+                query = query.filter(~col_attr.in_(f.values))
+            else:
+                query = query.filter(col_attr.in_(f.values))
+
+    # 5. Apply search across string columns
+    if search:
+        search_term = f"%{search}%"
+        search_filters = []
+        for col in columns:
+            col_cfg = MULTI_SOURCE_COLUMNS[col.source]["columns"][col.field]
+            if col_cfg["type"] == "string":
+                model = SOURCE_MODELS[col.source]
+                search_filters.append(getattr(model, col.field).ilike(search_term))
+        if search_filters:
+            query = query.filter(or_(*search_filters))
+
+    # 6. Apply sorting
+    for s in sort_rules:
+        if s.source not in MULTI_SOURCE_COLUMNS:
+            raise HTTPException(status_code=400, detail=f"Unknown sort source: {s.source}")
+        source_cfg = MULTI_SOURCE_COLUMNS[s.source]
+        if s.field not in source_cfg["columns"]:
+            raise HTTPException(status_code=400, detail=f"Unknown sort field: {s.field} in source {s.source}")
+        model = SOURCE_MODELS[s.source]
+        sort_col = getattr(model, s.field)
+        if s.direction.lower() == "desc":
+            query = query.order_by(desc(sort_col))
+        else:
+            query = query.order_by(asc(sort_col))
+
+    return query, select_labels, all_sources
+
+
+# --- Endpoint: GET all columns from all sources ---
+
+@router.get("/custom/columns")
+@limiter.limit("30/minute")
+def get_all_custom_columns(request: Request, user: dict = Depends(require_auth)):
+    """Returns all available columns from all sources with compatibility info."""
+    result = {}
+    for source_key, source_cfg in MULTI_SOURCE_COLUMNS.items():
+        result[source_key] = {
+            "label": source_cfg["label"],
+            "join_key": source_cfg["join_key"],
+            "compatible_with": source_cfg["compatible_with"],
+            "columns": [
+                {"key": key, **val}
+                for key, val in source_cfg["columns"].items()
+            ],
+        }
+    return {"sources": result}
+
+
+# --- Endpoint: POST multi-source query ---
+
+@router.post("/custom/query")
+@limiter.limit("10/minute")
+def run_multi_source_query(
+    request: Request,
+    body: MultiSourceQueryRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """
+    Multi-source custom report query with automatic joins, filters,
+    search, multi-sort, and pagination.
+    """
+    query, select_labels, all_sources = _build_custom_query(
+        db, body.columns, body.filters, body.sort, body.search
+    )
+
+    # Pagination
+    total = query.count()
+    page = body.page
+    limit = body.limit
+    pages = math.ceil(total / limit) if limit else 1
+    offset = (page - 1) * limit
+
+    results = query.offset(offset).limit(limit).all()
+
+    # Format response rows
+    data = []
+    for row in results:
+        row_dict = {}
+        for i, label in enumerate(select_labels):
+            val = row[i] if i < len(row) else None
+            if isinstance(val, datetime):
+                val = val.isoformat()
+            row_dict[label] = val
+        data.append(row_dict)
+
+    return {
+        "data": data,
+        "columns": select_labels,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "pages": pages,
+    }
+
+
+# --- Endpoint: POST multi-source query CSV export ---
+
+@router.post("/custom/query/export/csv")
+@limiter.limit("10/minute")
+def export_multi_source_csv(
+    request: Request,
+    body: MultiSourceQueryRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """
+    Export multi-source custom report query results as CSV (no pagination).
+    """
+    query, select_labels, all_sources = _build_custom_query(
+        db, body.columns, body.filters, body.sort, body.search
+    )
+
+    MAX_EXPORT_ROWS = 50000
+    results = query.limit(MAX_EXPORT_ROWS).all()
+
+    # Build column display labels: "Source > Field Label"
+    csv_headers = []
+    for label in select_labels:
+        source, field = label.split("__", 1)
+        source_cfg = MULTI_SOURCE_COLUMNS[source]
+        field_label = source_cfg["columns"][field]["label"]
+        csv_headers.append(f"{source_cfg['label']} > {field_label}")
+
+    data = []
+    for row in results:
+        row_dict = {}
+        for i, label in enumerate(select_labels):
+            source, field = label.split("__", 1)
+            source_cfg = MULTI_SOURCE_COLUMNS[source]
+            field_label = source_cfg["columns"][field]["label"]
+            header = f"{source_cfg['label']} > {field_label}"
+            val = row[i] if i < len(row) else None
+            if isinstance(val, datetime):
+                val = val.strftime("%Y-%m-%d %H:%M:%S")
+            row_dict[header] = val
+        data.append(row_dict)
+
+    sources_str = "_".join(sorted(all_sources))
+    return stream_csv(data, csv_headers, f"custom_multi_{sources_str}_{datetime.now().strftime('%Y%m%d')}.csv")
+
+
+# --- Legacy single-source endpoints (backward compatibility) ---
 
 @router.get("/custom/columns/{source}")
 @limiter.limit("30/minute")
