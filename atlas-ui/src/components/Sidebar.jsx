@@ -320,7 +320,7 @@ export default function Sidebar() {
             expanded ? 'opacity-100' : 'opacity-0'
           }`}
         >
-          v1.0.0
+          v1.1.8
         </div>
       </div>
 

@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.database import engine, get_db
 from app.models import Base
-from app.routers import devices, dashboards, utilities, reports, settings, config, iiq_sources, system, google_actions, bulk_actions, iiq_actions
+from app.routers import devices, utilities, reports, settings, config, iiq_sources, system, google_actions, bulk_actions, iiq_actions
 from app.routers import auth as auth_router
 from app.auth import require_auth, get_current_user, SECRET_KEY
 from app.services.iiq_sync import IIQConnector
@@ -112,7 +112,6 @@ app.include_router(iiq_actions.router, dependencies=[Depends(require_auth)])
 
 # Protected routers (require authentication)
 app.include_router(devices.router, dependencies=[Depends(require_auth)])
-app.include_router(dashboards.router, dependencies=[Depends(require_auth)])
 app.include_router(utilities.router, dependencies=[Depends(require_auth)])
 app.include_router(reports.router, dependencies=[Depends(require_auth)])
 
