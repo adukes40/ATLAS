@@ -1019,3 +1019,46 @@ class IIQConnector:
             db.rollback()
             logger.error(f"Manufacturer sync failed: {e}")
             return {"success": 0, "errors": 1, "message": str(e)}
+
+    # =========================================================================
+    # ASSET WRITE-BACK METHODS
+    # =========================================================================
+
+    def update_asset(self, asset_id: str, payload: dict):
+        """Generic asset update via IIQ API."""
+        url = f"{self.base_url}/api/v1.0/assets/{asset_id}"
+        response = requests.put(url, headers=self.headers, json=payload)
+        response.raise_for_status()
+        return response.json()
+
+    def update_asset_status(self, asset_id: str, status_name: str):
+        """Update an asset's status in IIQ."""
+        return self.update_asset(asset_id, {"AssetStatusName": status_name})
+
+    def update_asset_location(self, asset_id: str, location_id: str):
+        """Update an asset's location in IIQ."""
+        return self.update_asset(asset_id, {"LocationId": location_id})
+
+    def update_asset_tag(self, asset_id: str, tag: str):
+        """Update an asset's asset tag in IIQ."""
+        return self.update_asset(asset_id, {"AssetTag": tag})
+
+    def update_assigned_user(self, asset_id: str, user_id: str):
+        """Update an asset's assigned user (owner) in IIQ."""
+        return self.update_asset(asset_id, {"OwnerId": user_id})
+
+    def search_users(self, query: str):
+        """Search IIQ users by name or email."""
+        url = f"{self.base_url}/api/v1.0/users?$s={query}&$take=10"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("Items", [])
+
+    def search_locations(self, query: str):
+        """Search IIQ locations by name."""
+        url = f"{self.base_url}/api/v1.0/locations?$s={query}&$take=20"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("Items", [])

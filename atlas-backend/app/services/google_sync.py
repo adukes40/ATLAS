@@ -24,8 +24,9 @@ class GoogleConnector:
             credentials_json: Service account JSON as a string (from database)
         """
         self.scopes = [
-            'https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly',
-            'https://www.googleapis.com/auth/admin.directory.user.readonly',
+            'https://www.googleapis.com/auth/admin.directory.device.chromeos',
+            'https://www.googleapis.com/auth/admin.directory.user',
+            'https://www.googleapis.com/auth/admin.directory.orgunit',
             'https://www.googleapis.com/auth/chrome.management.telemetry.readonly'
         ]
 
@@ -473,6 +474,64 @@ class GoogleConnector:
         logger.info("=" * 50)
 
         return {"success": success_count, "errors": error_count}
+
+    # =========================================================================
+    # DEVICE ACTION METHODS
+    # =========================================================================
+
+    def enable_device(self, device_id: str):
+        """Re-enable a disabled Chrome OS device."""
+        body = {"action": "reenable"}
+        self.service.chromeosdevices().action(
+            customerId='my_customer',
+            resourceId=device_id,
+            body=body
+        ).execute()
+
+    def disable_device(self, device_id: str):
+        """Disable an active Chrome OS device."""
+        body = {"action": "disable"}
+        self.service.chromeosdevices().action(
+            customerId='my_customer',
+            resourceId=device_id,
+            body=body
+        ).execute()
+
+    def deprovision_device(self, device_id: str, reason: str):
+        """
+        Deprovision a Chrome OS device.
+        reason must be one of: same_model_replacement, different_model_replacement, retiring_device
+        """
+        body = {
+            "action": "deprovision",
+            "deprovisionReason": reason
+        }
+        self.service.chromeosdevices().action(
+            customerId='my_customer',
+            resourceId=device_id,
+            body=body
+        ).execute()
+
+    def move_device_ou(self, device_id: str, target_ou: str):
+        """Move a Chrome OS device to a different organizational unit."""
+        body = {
+            "deviceIds": [device_id]
+        }
+        self.service.chromeosdevices().moveDevicesToOu(
+            customerId='my_customer',
+            orgUnitPath=target_ou,
+            body=body
+        ).execute()
+
+    def list_org_units(self):
+        """Fetch all organizational units from Google Admin."""
+        results = self.service.orgunits().list(
+            customerId='my_customer',
+            type='all'
+        ).execute()
+        org_units = results.get('organizationUnits', [])
+        # Return sorted list of OU paths
+        return sorted([ou.get('orgUnitPath', '') for ou in org_units])
 
     def parse_org_unit(self, org_unit_path: str):
         """

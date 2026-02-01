@@ -4,9 +4,11 @@ import {
   Search, Server, Monitor, Wifi, AlertTriangle, CheckCircle,
   ExternalLink, User, GraduationCap, MapPin, Wrench, Building2,
   Cpu, HardDrive, Layout, ShieldCheck, History,
-  Activity, Gauge, Clock, Battery, Globe, Radio, RefreshCw, DollarSign
+  Activity, Gauge, Clock, Battery, Globe, Radio, RefreshCw, DollarSign,
+  X
 } from 'lucide-react'
 import { useIntegrations } from '../context/IntegrationsContext'
+import ActionPanel from '../components/ActionPanel'
 
 // --- CONFIGURATION ---
 // IIQ domain is loaded from environment variable (set in .env or at build time)
@@ -58,6 +60,17 @@ export default function Device360() {
     meraki: getPlatformColor('meraki'),
   }))
   const { integrations } = useIntegrations()
+
+  const [showActionPanel, setShowActionPanel] = useState(false)
+  const [toast, setToast] = useState(null) // { type: 'success'|'error', message: '' }
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [toast])
 
   // Listen for settings and color changes
   useEffect(() => {
@@ -366,14 +379,21 @@ export default function Device360() {
                         {syncing ? 'Syncing...' : 'Force Refresh'}
                      </button>
 
-                     {data.sources.iiq?.ticket_count > 0 ? (
+                     {data.sources.iiq?.ticket_count > 0 && (
                         <div className="flex items-center justify-center gap-2 w-full py-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/50 rounded-xl text-amber-700 dark:text-amber-400 text-xs font-bold shadow-sm">
                             <Wrench className="h-4 w-4" /> {data.sources.iiq.ticket_count} Active Ticket(s)
                         </div>
-                     ) : (
-                        <div className="flex items-center justify-center gap-2 w-full py-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/50 rounded-xl text-emerald-700 dark:text-emerald-400 text-xs font-bold shadow-sm">
-                            <ShieldCheck className="h-4 w-4" /> System Healthy
-                        </div>
+                     )}
+
+                     {/* Manage Device Action */}
+                     {integrations.google && data.sources.google && (
+                       <button
+                         onClick={() => setShowActionPanel(true)}
+                         className="flex items-center justify-center gap-2 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition active:scale-95 shadow-sm"
+                       >
+                         <Wrench className="h-4 w-4" />
+                         Manage Device
+                       </button>
                      )}
                 </div>
             </div>
@@ -684,6 +704,7 @@ export default function Device360() {
                     </div>
                 )}
              </div>
+
           </div>
         </div>
       )}
@@ -696,6 +717,41 @@ export default function Device360() {
                 <Layout className="h-10 w-10 text-blue-400 dark:text-blue-600 absolute -bottom-2 -right-2" />
             </div>
             <h3 className="text-xl font-medium text-slate-400 dark:text-slate-600 mt-6 tracking-tight italic">Scan an asset to begin analysis</h3>
+        </div>
+      )}
+
+      {/* ActionPanel */}
+      {showActionPanel && data && (
+        <ActionPanel
+          devices={[{
+            serial_number: data.serial,
+            serial: data.serial,
+            asset_tag: data.sources.iiq?.tag,
+            tag: data.sources.iiq?.tag,
+            google_status: data.sources.google?.status,
+            org_unit_path: data.sources.google?.org_unit_path,
+            iiq_status: data.sources.iiq?.status,
+            location: data.sources.iiq?.location,
+            assigned_user_email: data.sources.iiq?.assigned_user_email,
+            assigned_user: data.identity?.assigned_user,
+            google_id: data.sources.google?.google_id,
+          }]}
+          onClose={() => setShowActionPanel(false)}
+        />
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-xl shadow-lg border animate-in slide-in-from-bottom-4 duration-300 ${
+          toast.type === 'success'
+            ? 'bg-emerald-50 dark:bg-emerald-950/90 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+            : 'bg-red-50 dark:bg-red-950/90 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800'
+        }`}>
+          {toast.type === 'success' ? <CheckCircle className="h-5 w-5 flex-none" /> : <AlertTriangle className="h-5 w-5 flex-none" />}
+          <span className="text-sm font-medium">{toast.message}</span>
+          <button onClick={() => setToast(null)} className="p-0.5 hover:opacity-70 transition">
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
     </div>

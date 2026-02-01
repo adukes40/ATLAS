@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -9,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.database import engine, get_db
 from app.models import Base
-from app.routers import devices, dashboards, utilities, reports, settings, config, iiq_sources, system
+from app.routers import devices, dashboards, utilities, reports, settings, config, iiq_sources, system, google_actions, bulk_actions, iiq_actions
 from app.routers import auth as auth_router
 from app.auth import require_auth, get_current_user, SECRET_KEY
 from app.services.iiq_sync import IIQConnector
@@ -68,18 +69,19 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # =============================================================================
 
 # Session Middleware (required for OAuth state)
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY environment variable is required. Cannot start without it.")
 app.add_middleware(
     SessionMiddleware,
-    secret_key=SECRET_KEY or "fallback-dev-key",
+    secret_key=SECRET_KEY,
     session_cookie="atlas_oauth_session",
     max_age=3600,
     same_site="lax",
-    https_only=False  # Set True in production with HTTPS
+    https_only=os.getenv("HTTPS_ONLY", "false").lower() == "true"
 )
 
 # CORS Middleware
 # Origins loaded from environment variable ALLOWED_ORIGINS (comma-separated)
-import os
 cors_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -98,6 +100,15 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # Auth router (no authentication required)
 app.include_router(auth_router.router)
+
+# Google Actions router (must be registered before devices to avoid route conflicts)
+app.include_router(google_actions.router, dependencies=[Depends(require_auth)])
+
+# Bulk Actions router (must be registered before devices to avoid route conflicts)
+app.include_router(bulk_actions.router, dependencies=[Depends(require_auth)])
+
+# IIQ Actions router (write-back to IIQ)
+app.include_router(iiq_actions.router, dependencies=[Depends(require_auth)])
 
 # Protected routers (require authentication)
 app.include_router(devices.router, dependencies=[Depends(require_auth)])

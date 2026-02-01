@@ -3,6 +3,8 @@ import {
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Download, Loader2, Search, X, Filter, Check
 } from 'lucide-react'
+import BulkActionBar from './BulkActionBar'
+import ActionPanel from './ActionPanel'
 
 // Multi-Select Dropdown Component
 // value format: { values: string[], exclude: boolean } or null
@@ -212,6 +214,38 @@ export default function ReportTable({
   customRowRender,
   emptyMessage
 }) {
+  const [selectedRows, setSelectedRows] = useState({})
+  const [actionPanelDevices, setActionPanelDevices] = useState(null)
+
+  const selectedCount = Object.keys(selectedRows).length
+  const selectedDevices = data.filter((_, idx) => selectedRows[idx])
+
+  const toggleRow = (idx) => {
+    setSelectedRows(prev => {
+      const next = { ...prev }
+      if (next[idx]) delete next[idx]
+      else next[idx] = true
+      return next
+    })
+  }
+
+  const selectAllOnPage = () => {
+    const next = {}
+    data.forEach((_, idx) => { next[idx] = true })
+    setSelectedRows(next)
+  }
+
+  const clearSelection = () => setSelectedRows({})
+
+  // Clear selection when data changes (page change, filter, etc.)
+  useEffect(() => {
+    setSelectedRows({})
+  }, [data])
+
+  const handleRowClick = (row) => {
+    setActionPanelDevices([row])
+  }
+
   // Handle column sort
   const handleSort = (column) => {
     if (column.sortable === false) return
@@ -315,6 +349,14 @@ export default function ReportTable({
           <table className="w-full text-sm">
             <thead className="bg-slate-700 dark:bg-slate-900 sticky top-0 z-10">
               <tr>
+                <th className="w-10 py-3.5 px-3">
+                  <input
+                    type="checkbox"
+                    checked={data.length > 0 && selectedCount === data.length}
+                    onChange={() => selectedCount === data.length ? clearSelection() : selectAllOnPage()}
+                    className="h-4 w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                </th>
                 {columns.map((col) => (
                   <th
                     key={col.key}
@@ -338,13 +380,13 @@ export default function ReportTable({
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={columns.length} className="py-16 text-center">
+                  <td colSpan={columns.length + 1} className="py-16 text-center">
                     <Loader2 className="h-8 w-8 text-blue-500 animate-spin mx-auto" />
                   </td>
                 </tr>
               ) : data.length === 0 ? (
                 <tr>
-                  <td colSpan={columns.length} className="py-16 text-center text-slate-500 dark:text-slate-400">
+                  <td colSpan={columns.length + 1} className="py-16 text-center text-slate-500 dark:text-slate-400">
                     {emptyMessage || 'No results found'}
                   </td>
                 </tr>
@@ -352,7 +394,15 @@ export default function ReportTable({
                 data.map((row, idx) => customRowRender(row, idx))
               ) : (
                 data.map((row, idx) => (
-                  <tr key={idx} className="border-t border-slate-100 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-700/50 transition-colors">
+                  <tr key={idx} onClick={() => handleRowClick(row)} className="border-t border-slate-100 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer">
+                    <td className="py-3 px-3" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={!!selectedRows[idx]}
+                        onChange={() => toggleRow(idx)}
+                        className="h-4 w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </td>
                     {columns.map((col) => (
                       <td key={col.key} className="py-3 px-4 text-slate-700 dark:text-slate-300 whitespace-nowrap">
                         {col.render ? col.render(row[col.key], row) : row[col.key] || '-'}
@@ -409,6 +459,23 @@ export default function ReportTable({
             </button>
           </div>
         </div>
+      )}
+
+      {selectedCount > 0 && (
+        <BulkActionBar
+          count={selectedCount}
+          totalOnPage={data.length}
+          onSelectAll={selectAllOnPage}
+          onClear={clearSelection}
+          onBulkAction={() => setActionPanelDevices(selectedDevices)}
+        />
+      )}
+
+      {actionPanelDevices && (
+        <ActionPanel
+          devices={actionPanelDevices}
+          onClose={() => setActionPanelDevices(null)}
+        />
       )}
     </div>
   )
