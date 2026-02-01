@@ -57,7 +57,7 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSO
 app = FastAPI(
     title="ATLAS API",
     description="Asset, Telemetry, Location, & Analytics System",
-    version="0.5.0"  # Security Update - System Hardening
+    version="1.1.8"  # Action Panel - Unified Device Management
 )
 
 # Attach rate limiter to app state and register exception handler
@@ -159,7 +159,7 @@ def read_root():
     return {
         "system": "ATLAS",
         "status": "Operational",
-        "version": "0.5.0",
+        "version": "1.1.8",
         "auth": "enabled",
         "rate_limiting": "enabled",
         "security_headers": "enabled"

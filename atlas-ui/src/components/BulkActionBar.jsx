@@ -2,7 +2,7 @@ import { Wrench, X, CheckSquare } from 'lucide-react'
 
 export default function BulkActionBar({ count, totalOnPage, onSelectAll, onClear, onBulkAction }) {
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-4 px-6 py-3 bg-slate-800 dark:bg-slate-700 text-white rounded-xl shadow-2xl border border-slate-700 dark:border-slate-600 animate-in slide-in-from-bottom-4 duration-300">
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-4 px-6 py-3 bg-slate-800 dark:bg-slate-700 text-white rounded-xl shadow-2xl border border-slate-700 dark:border-slate-600">
       <span className="text-sm font-bold">
         {count} device{count !== 1 ? 's' : ''} selected
       </span>
