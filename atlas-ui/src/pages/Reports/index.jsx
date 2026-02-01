@@ -13,6 +13,7 @@ import FeeBalances from './FeeBalances'
 import NoChromebook from './NoChromebook'
 import MultipleDevices from './MultipleDevices'
 import CustomBuilder from './CustomBuilder'
+import SavedReportViewer from './SavedReportViewer'
 import InfrastructureInventory from './InfrastructureInventory'
 import FirmwareCompliance from './FirmwareCompliance'
 
@@ -232,6 +233,7 @@ export default function ReportsIndex() {
         <Route path="/no-chromebook" element={<NoChromebook />} />
         <Route path="/multiple-devices" element={<MultipleDevices />} />
         <Route path="/custom" element={<CustomBuilder />} />
+        <Route path="/saved/:id" element={<SavedReportViewer />} />
         <Route path="/infrastructure-inventory" element={<InfrastructureInventory />} />
         <Route path="/firmware-compliance" element={<FirmwareCompliance />} />
       </Routes>
