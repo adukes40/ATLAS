@@ -32,6 +32,8 @@ class IIQAsset(Base):
     model: Mapped[Optional[str]] = mapped_column(String)
     model_category: Mapped[Optional[str]] = mapped_column(String) # e.g. "Chromebook"
     status: Mapped[Optional[str]] = mapped_column(String)         # e.g. "Deployed"
+    status_type_id: Mapped[Optional[str]] = mapped_column(String) # IIQ status UUID for write-backs
+    location_id: Mapped[Optional[str]] = mapped_column(String)    # IIQ location UUID for write-backs
     mac_address: Mapped[Optional[str]] = mapped_column(String)
     
     # Expanded Owner Data

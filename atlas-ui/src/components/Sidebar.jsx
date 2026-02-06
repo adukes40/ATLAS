@@ -165,7 +165,7 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`fixed left-0 top-0 h-screen bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-50 transition-all duration-300 ease-in-out ${
+      className={`fixed left-0 top-0 h-screen bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-50 transition-all duration-300 ease-in-out overflow-hidden ${
         expanded ? 'w-52' : 'w-14'
       }`}
       onMouseEnter={() => setExpanded(true)}
@@ -184,7 +184,7 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="mt-4 px-2 space-y-1 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 100px)' }}>
+      <nav className="mt-4 px-2 space-y-1 overflow-y-auto overflow-x-hidden" style={{ maxHeight: 'calc(100vh - 100px)' }}>
         {/* Device 360 */}
         <NavLink to="/" end className={({ isActive }) => linkClass(isActive)}>
           <Laptop className="h-5 w-5 flex-shrink-0" />

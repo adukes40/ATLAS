@@ -26,10 +26,51 @@ _update_cache = {
 }
 CACHE_DURATION = timedelta(hours=1)
 
-# GitHub repo info
-GITHUB_OWNER = "adukes40"
-GITHUB_REPO = "ATLAS"
-GITHUB_BRANCH = "main"
+# GitHub repo info - auto-detected from git remote
+_github_info_cache = None
+
+def _detect_github_info() -> dict:
+    """Parse owner/repo from git remote origin URL. Cache result."""
+    global _github_info_cache
+    if _github_info_cache is not None:
+        return _github_info_cache
+
+    default = {"owner": "adukes40", "repo": "ATLAS", "branch": "main"}
+    try:
+        result = subprocess.run(
+            ["/usr/bin/git", "remote", "get-url", "origin"],
+            cwd="/opt/atlas",
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            # Handle both HTTPS and SSH URLs
+            # https://github.com/owner/repo.git
+            # git@github.com:owner/repo.git
+            import re
+            match = re.search(r"github\.com[:/]([^/]+)/([^/.]+)", url)
+            if match:
+                default["owner"] = match.group(1)
+                default["repo"] = match.group(2)
+    except Exception:
+        pass
+
+    # Detect current branch
+    try:
+        result = subprocess.run(
+            ["/usr/bin/git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd="/opt/atlas",
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            default["branch"] = result.stdout.strip()
+    except Exception:
+        pass
+
+    _github_info_cache = default
+    return _github_info_cache
 
 
 def read_version_file() -> str:
@@ -71,10 +112,11 @@ async def fetch_github_commits(since_commit: str = None) -> dict:
     Returns dict with latest_commit and changelog.
     """
     try:
+        gh = _detect_github_info()
         async with httpx.AsyncClient() as client:
             # Get latest commits on main branch
-            url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/commits"
-            params = {"sha": GITHUB_BRANCH, "per_page": 20}
+            url = f"https://api.github.com/repos/{gh['owner']}/{gh['repo']}/commits"
+            params = {"sha": gh["branch"], "per_page": 20}
 
             response = await client.get(url, params=params, timeout=10.0)
 

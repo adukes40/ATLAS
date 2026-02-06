@@ -207,12 +207,19 @@ class GoogleConnector:
             print(f"[Google] API Error: {e}")
             return None
 
-    def sync_record(self, db: Session, serial: str):
+    def sync_record(self, db: Session, serial: str, skip_telemetry: bool = False):
         """
         Syncs Google Admin data to the local google_devices table.
+
+        Args:
+            db: Database session
+            serial: Device serial number
+            skip_telemetry: If True, skip slow battery telemetry API call and preserve
+                           existing battery_health_percent from database. Use True for
+                           live Device 360 lookups (nightly sync already populates this).
         """
         raw_data = self.fetch_device_by_serial(serial)
-        
+
         if not raw_data:
             return {"status": "error", "message": "Device not found in Google Admin"}
 
@@ -249,11 +256,21 @@ class GoogleConnector:
         if disk_total and disk_used:
             disk_free = int(disk_total) - int(disk_used)
 
-        # 4. Battery Health (from Telemetry API)
+        # 4. Battery Health (from Telemetry API or cached database value)
         battery_health = None
-        telemetry_data = self.fetch_battery_telemetry(serial)
-        if telemetry_data:
-            battery_health = telemetry_data.get('battery_health_percent')
+        if skip_telemetry:
+            # For live lookups: preserve existing battery_health from database (populated by nightly sync)
+            # This avoids the slow telemetry API call that fetches ALL 26k devices
+            existing_record = db.query(GoogleDevice).filter(
+                GoogleDevice.serial_number == raw_data.get('serialNumber')
+            ).first()
+            if existing_record:
+                battery_health = existing_record.battery_health_percent
+        else:
+            # For bulk sync: fetch from telemetry API
+            telemetry_data = self.fetch_battery_telemetry(serial)
+            if telemetry_data:
+                battery_health = telemetry_data.get('battery_health_percent')
 
         # 5. Network IP Addresses (from lastKnownNetwork)
         lan_ip = None

@@ -398,24 +398,7 @@ setup_python_env() {
   echo -e " ${GN}done${CL}"
 
   echo -ne "        ${DIM}Installing Python packages...${CL}"
-  pip install -q \
-    fastapi \
-    uvicorn[standard] \
-    sqlalchemy \
-    psycopg2-binary \
-    python-dotenv \
-    httpx \
-    google-api-python-client \
-    google-auth \
-    python-multipart \
-    aiofiles \
-    authlib \
-    itsdangerous \
-    slowapi \
-    requests \
-    bcrypt \
-    cryptography \
-    > /dev/null 2>&1 &
+  pip install -q -r $ATLAS_DIR/atlas-backend/requirements.txt > /dev/null 2>&1 &
   spinner $!
   echo -e " ${GN}done${CL}"
 
@@ -595,31 +578,6 @@ EOF
   msg_ok "Nginx configured"
 }
 
-setup_cron_jobs() {
-  msg_info "Setting up sync cron jobs"
-
-  cat > /etc/cron.d/atlas << EOF
-# ATLAS Sync Jobs
-SHELL=/bin/bash
-PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
-
-# Google sync at 2 AM
-0 2 * * * $ATLAS_USER $VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/google_bulk_sync.py >> $ATLAS_DIR/logs/google_sync.log 2>&1
-
-# IIQ sync at 3 AM
-0 3 * * * $ATLAS_USER $VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/iiq_bulk_sync.py >> $ATLAS_DIR/logs/iiq_sync.log 2>&1
-
-# Meraki sync at 4 AM
-0 4 * * * $ATLAS_USER $VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/meraki_bulk_sync.py >> $ATLAS_DIR/logs/meraki_sync.log 2>&1
-
-# OUI database update at 5 AM (for MAC address vendor lookup)
-0 5 * * * $ATLAS_USER $VENV_DIR/bin/python $ATLAS_DIR/atlas-backend/scripts/oui_update.py >> $ATLAS_DIR/logs/oui_update.log 2>&1
-EOF
-
-  chmod 644 /etc/cron.d/atlas
-  msg_ok "Cron jobs configured"
-}
-
 initialize_database() {
   msg_info "Initializing database"
 
@@ -669,6 +627,46 @@ finally:
 PYEOF
 
   msg_ok "Admin user created"
+}
+
+seed_sync_schedules() {
+  msg_info "Seeding default sync schedules"
+
+  source $VENV_DIR/bin/activate
+  cd $ATLAS_DIR/atlas-backend
+
+  python3 << PYEOF
+import sys
+sys.path.insert(0, '/opt/atlas/atlas-backend')
+from app.database import SessionLocal
+from app.models import SyncSchedule
+from datetime import datetime
+
+db = SessionLocal()
+try:
+    defaults = [
+        {"source": "google", "enabled": True, "hours": [2]},
+        {"source": "iiq",    "enabled": True, "hours": [3]},
+        {"source": "meraki", "enabled": True, "hours": [4]},
+    ]
+    for d in defaults:
+        existing = db.query(SyncSchedule).filter(SyncSchedule.source == d["source"]).first()
+        if not existing:
+            schedule = SyncSchedule(
+                source=d["source"],
+                enabled=d["enabled"],
+                hours=d["hours"],
+                updated_at=datetime.utcnow(),
+                updated_by="installer"
+            )
+            db.add(schedule)
+    db.commit()
+    print("Sync schedules seeded")
+finally:
+    db.close()
+PYEOF
+
+  msg_ok "Sync schedules configured"
 }
 
 start_services() {
@@ -753,9 +751,9 @@ main() {
   create_service_user
   create_systemd_services
   configure_nginx
-  setup_cron_jobs
   initialize_database
   create_admin_user
+  seed_sync_schedules
   start_services
   print_summary
 }

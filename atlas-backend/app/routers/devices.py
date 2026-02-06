@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from slowapi import Limiter
+import time
 
 from app.database import get_db
 from app.models import IIQAsset, GoogleDevice, NetworkCache, IIQUser, MerakiClient, MerakiNetwork
@@ -13,6 +14,35 @@ from app.utils import get_user_identifier
 
 
 limiter = Limiter(key_func=get_user_identifier)
+
+# Device 360 response cache (5-minute TTL)
+# Key: normalized query (serial or asset tag), Value: (timestamp, response_dict)
+_device_cache: dict[str, tuple[float, dict]] = {}
+_CACHE_TTL_SECONDS = 300  # 5 minutes
+
+
+def _get_cached_response(query: str) -> dict | None:
+    """Returns cached response if valid, None otherwise."""
+    normalized = query.strip().upper()
+    if normalized in _device_cache:
+        cached_time, cached_response = _device_cache[normalized]
+        if time.time() - cached_time < _CACHE_TTL_SECONDS:
+            return cached_response
+        # Expired, remove it
+        del _device_cache[normalized]
+    return None
+
+
+def _set_cache(query: str, serial: str, response: dict):
+    """Cache response by both query and resolved serial."""
+    normalized_query = query.strip().upper()
+    normalized_serial = serial.strip().upper() if serial else None
+    now = time.time()
+
+    _device_cache[normalized_query] = (now, response)
+    # Also cache by resolved serial so lookups by either hit the cache
+    if normalized_serial and normalized_serial != normalized_query:
+        _device_cache[normalized_serial] = (now, response)
 
 def detect_conflicts(iiq_record, google_record) -> list:
     """
@@ -59,7 +89,16 @@ def get_device_360(request: Request, query: str, db: Session = Depends(get_db)):
     """
     Fetches a 360-degree view of a device by Serial Number or Asset Tag.
     ALWAYS performs a live sync from IIQ & Google Admin first.
+
+    Performance: Responses are cached for 5 minutes. Use Force Refresh
+    (sync endpoints) to bypass cache when fresh data is needed.
     """
+    # Check cache first (5-minute TTL)
+    cached = _get_cached_response(query)
+    if cached:
+        print(f">> Cache HIT for: {query}")
+        return cached
+
     print(f">> Processing Query: {query}")
     
     # 1. ALWAYS Try Live Sync First (IIQ)
@@ -80,6 +119,8 @@ def get_device_360(request: Request, query: str, db: Session = Depends(get_db)):
         print(f"   !! IIQ Sync Error: {e}")
 
     # 2. ALWAYS Try Live Sync (Google Admin) - Use Serial from query
+    # skip_telemetry=True avoids slow battery telemetry API (fetches all 26k devices)
+    # Battery health is already populated by nightly bulk sync
     try:
         google_cfg = get_google_config()
         google_connector = GoogleConnector(
@@ -87,7 +128,7 @@ def get_device_360(request: Request, query: str, db: Session = Depends(get_db)):
             admin_email=google_cfg["admin_email"],
             credentials_json=google_cfg.get("credentials_json")
         )
-        g_sync_result = google_connector.sync_record(db, query)
+        g_sync_result = google_connector.sync_record(db, query, skip_telemetry=True)
         if g_sync_result.get("status") == "success":
              print(f"   >> Google Sync Success: {query}")
         else:
@@ -252,7 +293,7 @@ def get_device_360(request: Request, query: str, db: Session = Depends(get_db)):
         )
 
     # 7. Assemble final 360 Object
-    return {
+    response = {
         "serial": target_serial,
         "identity": {
             "serial": target_serial,
@@ -265,3 +306,8 @@ def get_device_360(request: Request, query: str, db: Session = Depends(get_db)):
         },
         "conflicts": detected_conflicts
     }
+
+    # Cache the response (5-minute TTL) for faster repeated lookups
+    _set_cache(query, target_serial, response)
+
+    return response

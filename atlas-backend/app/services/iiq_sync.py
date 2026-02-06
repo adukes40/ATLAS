@@ -145,6 +145,8 @@ class IIQConnector:
             model = raw_data.get("Model", {}).get("Name"),
             model_category = raw_data.get("Model", {}).get("Category", {}).get("Name"),
             status = raw_data.get("Status", {}).get("Name"),
+            status_type_id = raw_data.get("Status", {}).get("AssetStatusTypeId"),
+            location_id = loc_obj.get("LocationId"),
 
             assigned_user_email = owner.get("Email"),
             assigned_user_id = owner.get("SchoolIdNumber"),
@@ -310,6 +312,8 @@ class IIQConnector:
                     model=raw_data.get("Model", {}).get("Name"),
                     model_category=raw_data.get("Model", {}).get("Category", {}).get("Name"),
                     status=raw_data.get("Status", {}).get("Name"),
+                    status_type_id=raw_data.get("Status", {}).get("AssetStatusTypeId"),
+                    location_id=loc_obj.get("LocationId"),
                     assigned_user_email=owner.get("Email"),
                     assigned_user_id=owner.get("SchoolIdNumber"),
                     owner_iiq_id=owner.get("UserId"),
@@ -1024,28 +1028,72 @@ class IIQConnector:
     # ASSET WRITE-BACK METHODS
     # =========================================================================
 
-    def update_asset(self, asset_id: str, payload: dict):
-        """Generic asset update via IIQ API."""
-        url = f"{self.base_url}/api/v1.0/assets/{asset_id}"
-        response = requests.put(url, headers=self.headers, json=payload)
-        response.raise_for_status()
+    def _iiq_post(self, url: str, payload: dict):
+        """POST to IIQ with error handling that surfaces the actual IIQ error."""
+        response = requests.post(url, headers=self.headers, json=payload, timeout=15)
+        if not response.ok:
+            detail = ""
+            try:
+                body = response.json()
+                # Collect individual error messages from Errors array
+                errors = body.get("Errors", [])
+                if errors:
+                    detail = "; ".join(e.get("Message", "") for e in errors if e.get("Message"))
+                if not detail:
+                    detail = body.get("Message") or body.get("error") or body.get("message") or ""
+            except Exception:
+                detail = response.text[:500] if response.text else ""
+            logger.warning(
+                f"IIQ API failed: url={url} payload={payload} "
+                f"status={response.status_code} body={response.text[:1000]}"
+            )
+            raise requests.HTTPError(
+                detail or f"{response.status_code} {response.reason}",
+                response=response,
+            )
         return response.json()
 
-    def update_asset_status(self, asset_id: str, status_name: str):
-        """Update an asset's status in IIQ."""
-        return self.update_asset(asset_id, {"AssetStatusName": status_name})
+    def _update_asset_field(self, asset_id: str, serial: str, updates: dict):
+        """
+        Update asset fields in IIQ via full-object round-trip.
+        IIQ's POST /assets/{id} requires the full asset object; any omitted
+        fields get wiped. So we fetch first, apply changes, then POST back.
 
-    def update_asset_location(self, asset_id: str, location_id: str):
-        """Update an asset's location in IIQ."""
-        return self.update_asset(asset_id, {"LocationId": location_id})
+        CRITICAL: We must remove nested objects (Status, Location, etc.) before POSTing.
+        IIQ silently rejects the entire payload if nested objects have data that
+        conflicts with top-level IDs (e.g., StatusTypeId points to "Broken" but
+        Status.Name still says "In Service"). By removing nested objects, IIQ
+        rebuilds them from the top-level IDs.
+        """
+        full_asset = self.fetch_asset_by_serial(serial)
+        if not full_asset:
+            raise Exception("Could not fetch asset from IIQ")
 
-    def update_asset_tag(self, asset_id: str, tag: str):
-        """Update an asset's asset tag in IIQ."""
-        return self.update_asset(asset_id, {"AssetTag": tag})
+        # Remove nested objects that could cause conflicts
+        for key in ['Status', 'Location', 'Owner', 'PreviousOwner', 'Model', 'Site']:
+            if key in full_asset:
+                del full_asset[key]
+
+        full_asset.update(updates)
+        url = f"{self.base_url}/api/v1.0/assets/{asset_id}"
+        return self._iiq_post(url, full_asset)
+
+    def update_asset_status(self, asset_id: str, serial: str, status_type_id: str):
+        """Update asset status in IIQ."""
+        return self._update_asset_field(asset_id, serial, {"StatusTypeId": status_type_id})
+
+    def update_asset_location(self, asset_id: str, serial: str, location_id: str):
+        """Update asset location in IIQ."""
+        return self._update_asset_field(asset_id, serial, {"LocationId": location_id})
+
+    def update_asset_tag(self, asset_id: str, serial: str, new_tag: str):
+        """Update asset tag in IIQ."""
+        return self._update_asset_field(asset_id, serial, {"AssetTag": new_tag})
 
     def update_assigned_user(self, asset_id: str, user_id: str):
-        """Update an asset's assigned user (owner) in IIQ."""
-        return self.update_asset(asset_id, {"OwnerId": user_id})
+        """Update asset owner via IIQ /assets/{id}/owner endpoint."""
+        url = f"{self.base_url}/api/v1.0/assets/{asset_id}/owner"
+        return self._iiq_post(url, {"OwnerId": user_id})
 
     def search_users(self, query: str):
         """Search IIQ users by name or email."""
