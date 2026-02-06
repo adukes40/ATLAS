@@ -26,17 +26,25 @@ export default function ActionPanel({ devices, onClose }) {
   const [deprovisionConfirm, setDeprovisionConfirm] = useState('')
 
   // IIQ state
+  const [iiqStatuses, setIiqStatuses] = useState([])
+  const [iiqStatusesLoaded, setIiqStatusesLoaded] = useState(false)
   const [iiqStatusValue, setIiqStatusValue] = useState('')
+  const [iiqLocations, setIiqLocations] = useState([])
+  const [iiqLocationsLoaded, setIiqLocationsLoaded] = useState(false)
   const [iiqLocationValue, setIiqLocationValue] = useState('')
   const [iiqTagValue, setIiqTagValue] = useState('')
   const [iiqUserSearch, setIiqUserSearch] = useState('')
+  const [iiqUserResults, setIiqUserResults] = useState([])
+  const [iiqUserLoading, setIiqUserLoading] = useState(false)
+  const [selectedIiqUser, setSelectedIiqUser] = useState(null)
 
   const isSingle = devices.length === 1
   const device = isSingle ? devices[0] : null
 
-  // Animate in on mount
+  // Animate in on mount + preload IIQ statuses if IIQ is the default tab
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))
+    if (!integrations.google && integrations.iiq) { loadIiqStatuses(); loadIiqLocations() }
   }, [])
 
   const handleClose = () => {
@@ -63,11 +71,56 @@ export default function ActionPanel({ devices, onClose }) {
     }
   }
 
+  // Load IIQ statuses on demand
+  const loadIiqStatuses = async () => {
+    if (iiqStatusesLoaded) return
+    try {
+      const res = await axios.get('/api/iiq/statuses')
+      setIiqStatuses(res.data.statuses || [])
+      setIiqStatusesLoaded(true)
+    } catch {
+      // silently fail — dropdown will just be empty
+    }
+  }
+
+  // Load IIQ locations on demand
+  const loadIiqLocations = async () => {
+    if (iiqLocationsLoaded) return
+    try {
+      const res = await axios.get('/api/iiq/locations')
+      setIiqLocations(res.data.locations || [])
+      setIiqLocationsLoaded(true)
+    } catch {
+      // silently fail
+    }
+  }
+
   const filteredOUs = orgUnits.filter(ou =>
     ou.toLowerCase().includes(ouSearch.toLowerCase())
   )
 
-  // Toggle accordion
+  // Debounced IIQ user search
+  useEffect(() => {
+    if (iiqUserSearch.length < 2) {
+      setIiqUserResults([])
+      return
+    }
+    if (selectedIiqUser) return // Don't search when user just selected
+    const timer = setTimeout(async () => {
+      setIiqUserLoading(true)
+      try {
+        const res = await axios.get('/api/iiq/search-users', { params: { q: iiqUserSearch } })
+        setIiqUserResults(res.data.users || [])
+      } catch {
+        setIiqUserResults([])
+      } finally {
+        setIiqUserLoading(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [iiqUserSearch, selectedIiqUser])
+
+  // Toggle accordion (Google tab actions)
   const toggleAction = (action) => {
     if (expandedAction === action) {
       setExpandedAction(null)
@@ -113,34 +166,39 @@ export default function ActionPanel({ devices, onClose }) {
     }
   }
 
-  // --- IIQ SINGLE ACTIONS ---
-  const handleIIQSingleAction = async (field, value) => {
-    const serial = device.serial_number || device.serial
-    setActionLoading(`iiq-${field}`)
-    setResults(null)
-    try {
-      await axios.post(`/api/device/${serial}/iiq/update-${field}`, { value })
-      setResults({ type: 'success', message: `${field} updated successfully. Click Force Refresh to see updated values.` })
-    } catch (err) {
-      setResults({ type: 'error', message: err.response?.data?.detail || err.message })
-    } finally {
-      setActionLoading(null)
-    }
-  }
+  // --- IIQ COMBINED APPLY ---
+  const iiqHasChanges = !!(iiqStatusValue || iiqLocationValue || iiqTagValue || selectedIiqUser)
 
-  // --- IIQ BULK ACTIONS ---
-  const handleIIQBulkAction = async (field, value) => {
-    const serials = devices.map(d => d.serial_number || d.serial)
-    setActionLoading(`iiq-${field}`)
+  const handleIIQApply = async () => {
+    const payload = {}
+    if (iiqStatusValue) payload.status_id = iiqStatusValue
+    if (iiqLocationValue) payload.location_id = iiqLocationValue
+    if (iiqTagValue) payload.asset_tag = iiqTagValue
+    if (selectedIiqUser) payload.user_id = selectedIiqUser.user_id
+
+    setActionLoading('iiq-apply')
     setResults(null)
     try {
-      const res = await axios.post(`/api/bulk/iiq/update-${field}`, { serials, value })
-      const data = res.data
-      setResults({
-        type: data.failed > 0 ? 'partial' : 'success',
-        message: `${data.success} succeeded, ${data.failed} failed`,
-        errors: data.errors || []
-      })
+      if (isSingle) {
+        const serial = device.serial_number || device.serial
+        await axios.post(`/api/device/${serial}/iiq/update`, payload)
+        setResults({ type: 'success', message: 'Changes applied successfully. Click Force Refresh to see updated values.' })
+      } else {
+        const serials = devices.map(d => d.serial_number || d.serial)
+        const res = await axios.post('/api/bulk/iiq/update', { serials, ...payload })
+        const data = res.data
+        setResults({
+          type: data.failed > 0 ? 'partial' : 'success',
+          message: `${data.success} succeeded, ${data.failed} failed`,
+          errors: data.errors || []
+        })
+      }
+      // Reset fields after success
+      setIiqStatusValue('')
+      setIiqLocationValue('')
+      setIiqTagValue('')
+      setSelectedIiqUser(null)
+      setIiqUserSearch('')
     } catch (err) {
       setResults({ type: 'error', message: err.response?.data?.detail || err.message })
     } finally {
@@ -154,15 +212,11 @@ export default function ActionPanel({ devices, onClose }) {
     else handleBulkAction(endpoint, body)
   }
 
-  const handleIIQAction = (field, value) => {
-    if (isSingle) handleIIQSingleAction(field, value)
-    else handleIIQBulkAction(field, value)
-  }
-
   // Count tabs to show
+  // NOTE: IIQ actions temporarily disabled due to unreliable API behavior
   const tabs = []
   if (integrations.google) tabs.push({ key: 'google', label: 'Google' })
-  if (integrations.iiq) tabs.push({ key: 'iiq', label: 'IIQ' })
+  // if (integrations.iiq) tabs.push({ key: 'iiq', label: 'IIQ' })
 
   return (
     <>
@@ -203,7 +257,7 @@ export default function ActionPanel({ devices, onClose }) {
             {tabs.map(tab => (
               <button
                 key={tab.key}
-                onClick={() => { setActiveTab(tab.key); setExpandedAction(null); setResults(null) }}
+                onClick={() => { setActiveTab(tab.key); setExpandedAction(null); setResults(null); if (tab.key === 'iiq') { loadIiqStatuses(); loadIiqLocations() } }}
                 className={`flex-1 py-3 text-sm font-bold transition ${
                   activeTab === tab.key
                     ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
@@ -372,74 +426,59 @@ export default function ActionPanel({ devices, onClose }) {
 
           {/* ========= IIQ TAB ========= */}
           {activeTab === 'iiq' && (
-            <>
-              {/* Update Status (single + bulk) */}
-              <ActionAccordion
-                icon={FileText}
-                label="Update Status"
-                currentValue={isSingle ? device.iiq_status : null}
-                expanded={expandedAction === 'iiq-status'}
-                onToggle={() => toggleAction('iiq-status')}
-              >
+            <div className="space-y-4">
+              {/* Status */}
+              <div>
+                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  <FileText className="h-4 w-4 text-slate-400" />
+                  Status
+                  {isSingle && device.iiq_status && (
+                    <span className="font-normal text-xs text-slate-400 ml-auto truncate max-w-[180px]">{device.iiq_status}</span>
+                  )}
+                </label>
                 <select
                   value={iiqStatusValue}
                   onChange={(e) => setIiqStatusValue(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm"
                 >
                   <option value="">Select status...</option>
-                  <option value="Deployed">Deployed</option>
-                  <option value="In Stock">In Stock</option>
-                  <option value="In Repair">In Repair</option>
-                  <option value="Retired">Retired</option>
-                  <option value="Lost/Stolen">Lost/Stolen</option>
+                  {iiqStatuses.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
                 </select>
-                {iiqStatusValue && (
-                  <button
-                    onClick={() => handleIIQAction('status', iiqStatusValue)}
-                    disabled={actionLoading !== null}
-                    className="w-full mt-2 py-2.5 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white transition disabled:opacity-50"
-                  >
-                    {actionLoading === 'iiq-status' ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : `Apply ${!isSingle ? 'to ' + devices.length + ' Devices' : ''}`}
-                  </button>
-                )}
-                {!isSingle && iiqStatusValue && <p className="text-xs text-slate-400 mt-1">Will apply to {devices.length} devices</p>}
-              </ActionAccordion>
+              </div>
 
-              {/* Update Location (single + bulk) */}
-              <ActionAccordion
-                icon={MapPin}
-                label="Update Location"
-                currentValue={isSingle ? device.location : null}
-                expanded={expandedAction === 'iiq-location'}
-                onToggle={() => toggleAction('iiq-location')}
-              >
-                <input
-                  type="text"
-                  placeholder="Type location name..."
+              {/* Location */}
+              <div>
+                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  <MapPin className="h-4 w-4 text-slate-400" />
+                  Location
+                  {isSingle && device.location && (
+                    <span className="font-normal text-xs text-slate-400 ml-auto truncate max-w-[180px]">{device.location}</span>
+                  )}
+                </label>
+                <select
                   value={iiqLocationValue}
                   onChange={(e) => setIiqLocationValue(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm"
-                />
-                {iiqLocationValue && (
-                  <button
-                    onClick={() => handleIIQAction('location', iiqLocationValue)}
-                    disabled={actionLoading !== null}
-                    className="w-full mt-2 py-2.5 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white transition disabled:opacity-50"
-                  >
-                    {actionLoading === 'iiq-location' ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : `Apply ${!isSingle ? 'to ' + devices.length + ' Devices' : ''}`}
-                  </button>
-                )}
-              </ActionAccordion>
-
-              {/* Update Asset Tag (single only) */}
-              {isSingle && (
-                <ActionAccordion
-                  icon={Tag}
-                  label="Update Asset Tag"
-                  currentValue={device.asset_tag || device.tag}
-                  expanded={expandedAction === 'iiq-tag'}
-                  onToggle={() => toggleAction('iiq-tag')}
                 >
+                  <option value="">Select location...</option>
+                  {iiqLocations.map(l => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Asset Tag (single only) */}
+              {isSingle && (
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    <Tag className="h-4 w-4 text-slate-400" />
+                    Asset Tag
+                    {(device.asset_tag || device.tag) && (
+                      <span className="font-normal text-xs text-slate-400 ml-auto truncate max-w-[180px]">{device.asset_tag || device.tag}</span>
+                    )}
+                  </label>
                   <input
                     type="text"
                     placeholder="New asset tag..."
@@ -447,46 +486,67 @@ export default function ActionPanel({ devices, onClose }) {
                     onChange={(e) => setIiqTagValue(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm"
                   />
-                  {iiqTagValue && (
-                    <button
-                      onClick={() => handleIIQAction('asset-tag', iiqTagValue)}
-                      disabled={actionLoading !== null}
-                      className="w-full mt-2 py-2.5 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white transition disabled:opacity-50"
-                    >
-                      {actionLoading === 'iiq-asset-tag' ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Update Tag'}
-                    </button>
-                  )}
-                </ActionAccordion>
+                </div>
               )}
 
-              {/* Update Assigned User (single only) */}
+              {/* Assigned User (single only) */}
               {isSingle && (
-                <ActionAccordion
-                  icon={User}
-                  label="Update Assigned User"
-                  currentValue={device.assigned_user_email || device.assigned_user}
-                  expanded={expandedAction === 'iiq-user'}
-                  onToggle={() => toggleAction('iiq-user')}
-                >
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    <User className="h-4 w-4 text-slate-400" />
+                    Assigned User
+                    {(device.assigned_user_email || device.assigned_user) && (
+                      <span className="font-normal text-xs text-slate-400 ml-auto truncate max-w-[180px]">{device.assigned_user_email || device.assigned_user}</span>
+                    )}
+                  </label>
                   <input
                     type="text"
-                    placeholder="Search by email..."
+                    placeholder="Search by name, email, or school ID..."
                     value={iiqUserSearch}
-                    onChange={(e) => setIiqUserSearch(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm"
+                    onChange={(e) => { setIiqUserSearch(e.target.value); setSelectedIiqUser(null) }}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
-                  {iiqUserSearch && (
-                    <button
-                      onClick={() => handleIIQAction('assigned-user', iiqUserSearch)}
-                      disabled={actionLoading !== null}
-                      className="w-full mt-2 py-2.5 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white transition disabled:opacity-50"
-                    >
-                      {actionLoading === 'iiq-assigned-user' ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Assign User'}
-                    </button>
+                  {iiqUserSearch && !selectedIiqUser && (
+                    <div className="mt-2 max-h-36 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                      {iiqUserLoading ? (
+                        <div className="flex items-center justify-center py-3">
+                          <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                          <span className="ml-2 text-xs text-slate-400">Searching IIQ...</span>
+                        </div>
+                      ) : iiqUserResults.length > 0 ? iiqUserResults.map(u => (
+                        <button
+                          key={u.user_id}
+                          onClick={() => { setSelectedIiqUser(u); setIiqUserSearch(u.name || u.email) }}
+                          className="w-full text-left px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition"
+                        >
+                          <p className="text-xs font-medium text-slate-700 dark:text-slate-300">{u.name}</p>
+                          <p className="text-[11px] text-slate-400">
+                            {u.email}{u.school_id ? ` · ID: ${u.school_id}` : ''}
+                          </p>
+                        </button>
+                      )) : iiqUserSearch.length >= 2 ? (
+                        <p className="px-3 py-2 text-xs text-slate-400">No matching users found</p>
+                      ) : null}
+                    </div>
                   )}
-                </ActionAccordion>
+                  {selectedIiqUser && (
+                    <p className="mt-1.5 text-xs text-blue-600 dark:text-blue-400">
+                      Selected: {selectedIiqUser.name} ({selectedIiqUser.email})
+                    </p>
+                  )}
+                </div>
               )}
-            </>
+
+              {/* Apply Changes button */}
+              {!isSingle && <p className="text-xs text-slate-400">Will apply to {devices.length} devices</p>}
+              <button
+                onClick={handleIIQApply}
+                disabled={!iiqHasChanges || actionLoading !== null}
+                className="w-full py-2.5 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {actionLoading === 'iiq-apply' ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : `Apply Changes${!isSingle ? ' to ' + devices.length + ' Devices' : ''}`}
+              </button>
+            </div>
           )}
         </div>
 

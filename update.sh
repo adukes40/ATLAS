@@ -30,120 +30,139 @@ NC='\033[0m' # No Color
 ATLAS_ROOT="/opt/atlas"
 BACKEND_DIR="$ATLAS_ROOT/atlas-backend"
 FRONTEND_DIR="$ATLAS_ROOT/atlas-ui"
+VENV_DIR="$BACKEND_DIR/venv"
+TRIGGER_FILE="$ATLAS_ROOT/logs/trigger-update"
 
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}        ATLAS Update Script${NC}"
-echo -e "${BLUE}========================================${NC}"
-echo ""
+# Capture all output for UpdateLog write-back
+UPDATE_OUTPUT=""
+capture() { UPDATE_OUTPUT+="$1"$'\n'; echo -e "$1"; }
+
+# Read log_id from trigger file (written by system.py)
+LOG_ID=""
+if [ -f "$TRIGGER_FILE" ]; then
+    LOG_ID=$(grep -oP 'Log ID: \K\d+' "$TRIGGER_FILE" 2>/dev/null || true)
+fi
+
+# Function to write update result back to database
+write_update_log() {
+    local status="$1"
+    local to_version="$2"
+    local to_commit="$3"
+
+    if [ -z "$LOG_ID" ]; then
+        return 0
+    fi
+
+    "$VENV_DIR/bin/python3" -c "
+import sys
+sys.path.insert(0, '$BACKEND_DIR')
+from app.database import SessionLocal
+from app.models import UpdateLog
+from datetime import datetime
+
+db = SessionLocal()
+try:
+    log = db.query(UpdateLog).filter(UpdateLog.id == $LOG_ID).first()
+    if log:
+        log.status = '$status'
+        log.to_version = '$to_version' if '$to_version' else None
+        log.to_commit = '$to_commit' if '$to_commit' else None
+        log.completed_at = datetime.utcnow()
+        log.output = '''$UPDATE_OUTPUT'''
+        db.commit()
+finally:
+    db.close()
+" 2>/dev/null || true
+}
+
+capture "${BLUE}========================================${NC}"
+capture "${BLUE}        ATLAS Update Script${NC}"
+capture "${BLUE}========================================${NC}"
+capture ""
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}Error: Please run as root (sudo ./update.sh)${NC}"
+    capture "${RED}Error: Please run as root (sudo ./update.sh)${NC}"
     exit 1
 fi
 
 # Check if ATLAS directory exists
 if [ ! -d "$ATLAS_ROOT" ]; then
-    echo -e "${RED}Error: ATLAS directory not found at $ATLAS_ROOT${NC}"
+    capture "${RED}Error: ATLAS directory not found at $ATLAS_ROOT${NC}"
     exit 1
 fi
 
 cd "$ATLAS_ROOT"
 
 # Show current version
-echo -e "${YELLOW}Current version:${NC}"
-git log -1 --format="  %h %s (%cr)"
-echo ""
+capture "${YELLOW}Current version:${NC}"
+capture "  $(git log -1 --format='%h %s (%cr)')"
+capture ""
+
+# Auto-detect repo from git remote
+TARGET_REPO=$(git remote get-url origin 2>/dev/null || echo "https://github.com/adukes40/ATLAS.git")
+capture "${GREEN}Repository: $TARGET_REPO${NC}"
 
 # Check for uncommitted changes
 if [ -n "$(git status --porcelain)" ]; then
-    echo -e "${YELLOW}Warning: You have uncommitted local changes:${NC}"
-    git status --short
-    echo ""
+    capture "${YELLOW}Warning: You have uncommitted local changes:${NC}"
+    capture "$(git status --short)"
+    capture ""
     if [ "$INTERACTIVE" = true ]; then
         echo -n "Continue anyway? (y/N) "
         read -r CONFIRM < /dev/tty
         echo ""
         if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
-            echo -e "${RED}Update cancelled${NC}"
+            capture "${RED}Update cancelled${NC}"
+            write_update_log "failed" "" ""
             exit 1
         fi
     else
-        echo -e "${YELLOW}Non-interactive mode: Proceeding despite local changes${NC}"
+        capture "${YELLOW}Non-interactive mode: Proceeding despite local changes${NC}"
     fi
 fi
 
 # ---------------------------------------------------------
-# 1. Select Update Source
+# 1. Select Branch
 # ---------------------------------------------------------
-if [ "$INTERACTIVE" = true ]; then
-    echo -e "${YELLOW}Select Update Source:${NC}"
-    echo "  1) Production (Stable) - https://github.com/adukes40/ATLAS.git"
-    echo "  2) Development (Testing) - https://github.com/hankscafe/ATLAS.git"
-    echo ""
-
-    echo -n "Enter selection [1]: "
-    read -r REPO_SELECT < /dev/tty
-
-    if [[ "$REPO_SELECT" == "2" ]]; then
-        TARGET_REPO="https://github.com/hankscafe/ATLAS.git"
-        echo -e "${GREEN}Selected: Development${NC}"
-    else
-        TARGET_REPO="https://github.com/adukes40/ATLAS.git"
-        echo -e "${GREEN}Selected: Production${NC}"
-    fi
-    echo ""
-else
-    # Non-interactive: Use production repo
-    TARGET_REPO="https://github.com/adukes40/ATLAS.git"
-    echo -e "${GREEN}Non-interactive mode: Using Production repo${NC}"
-fi
-
-# Update remote origin immediately
-git remote set-url origin "$TARGET_REPO"
-
-# ---------------------------------------------------------
-# 2. Select Branch
-# ---------------------------------------------------------
-
-# Logic: If CLI argument was provided, use it. Otherwise, prompt user.
 if [ -n "$CLI_BRANCH" ]; then
     BRANCH_NAME="$CLI_BRANCH"
-    echo -e "${GREEN}Using branch from command line: $BRANCH_NAME${NC}"
+    capture "${GREEN}Using branch from command line: $BRANCH_NAME${NC}"
 else
-    echo -e "${YELLOW}Fetching available branches...${NC}"
+    capture "${YELLOW}Fetching available branches...${NC}"
     git fetch origin --prune
 
-    echo ""
-    echo -e "${YELLOW}Select Branch:${NC}"
+    capture ""
+    capture "${YELLOW}Select Branch:${NC}"
     echo -n "Enter branch name [main]: "
     read -r BRANCH_INPUT < /dev/tty
     BRANCH_NAME=${BRANCH_INPUT:-main}
 fi
 
 # Validate branch existence on remote
-echo -e "${YELLOW}Verifying branch '$BRANCH_NAME'...${NC}"
+capture "${YELLOW}Verifying branch '$BRANCH_NAME'...${NC}"
 git fetch origin "$BRANCH_NAME" > /dev/null 2>&1 || true
 
 if ! git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
-    echo ""
-    echo -e "${RED}Error: Branch '$BRANCH_NAME' does not exist on the selected remote.${NC}"
-    echo -e "${YELLOW}Available remote branches:${NC}"
-    git branch -r | grep "origin/" | sed 's/origin\///' | sed 's/^/  - /'
+    capture ""
+    capture "${RED}Error: Branch '$BRANCH_NAME' does not exist on the remote.${NC}"
+    capture "${YELLOW}Available remote branches:${NC}"
+    capture "$(git branch -r | grep 'origin/' | sed 's/origin\///' | sed 's/^/  - /')"
+    write_update_log "failed" "" ""
     exit 1
 fi
 
-echo -e "${GREEN}Proceeding with branch: $BRANCH_NAME${NC}"
-echo ""
+capture "${GREEN}Proceeding with branch: $BRANCH_NAME${NC}"
+capture ""
 
 # ---------------------------------------------------------
-# 3. Switch Branch & Update
+# 2. Switch Branch & Update
 # ---------------------------------------------------------
 
 # Switch branch if needed
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ "$CURRENT_BRANCH" != "$BRANCH_NAME" ]; then
-    echo -e "${BLUE}Switching from $CURRENT_BRANCH to $BRANCH_NAME...${NC}"
+    capture "${BLUE}Switching from $CURRENT_BRANCH to $BRANCH_NAME...${NC}"
     if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
         git checkout "$BRANCH_NAME"
     else
@@ -156,131 +175,179 @@ LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse "origin/$BRANCH_NAME")
 
 if [ "$LOCAL" = "$REMOTE" ]; then
-    echo -e "${GREEN}Already up to date!${NC}"
-    echo ""
+    capture "${GREEN}Already up to date!${NC}"
+    capture ""
     if [ "$INTERACTIVE" = true ]; then
         echo -n "Continue with rebuild anyway? (y/N) "
         read -r CONFIRM < /dev/tty
         echo ""
         if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
-            echo -e "${BLUE}Nothing to do. Exiting.${NC}"
+            capture "${BLUE}Nothing to do. Exiting.${NC}"
+            write_update_log "success" "" ""
             exit 0
         fi
     else
-        echo -e "${BLUE}Non-interactive mode: Already up to date, exiting.${NC}"
+        capture "${BLUE}Non-interactive mode: Already up to date, exiting.${NC}"
+        write_update_log "success" "" ""
         exit 0
     fi
 else
-    echo -e "${YELLOW}Changes to be applied:${NC}"
-    git log --oneline "HEAD..origin/$BRANCH_NAME"
-    echo ""
+    capture "${YELLOW}Changes to be applied:${NC}"
+    capture "$(git log --oneline 'HEAD..origin/'$BRANCH_NAME)"
+    capture ""
     if [ "$INTERACTIVE" = true ]; then
         echo -n "Apply these updates? (y/N) "
         read -r CONFIRM < /dev/tty
         echo ""
         if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
-            echo -e "${RED}Update cancelled${NC}"
+            capture "${RED}Update cancelled${NC}"
+            write_update_log "failed" "" ""
             exit 1
         fi
     else
-        echo -e "${GREEN}Non-interactive mode: Applying updates automatically${NC}"
+        capture "${GREEN}Non-interactive mode: Applying updates automatically${NC}"
     fi
 fi
 
 # Pull updates
-echo ""
-echo -e "${BLUE}[1/9] Pulling latest code...${NC}"
+capture ""
+capture "${BLUE}[1/9] Pulling latest code...${NC}"
 git pull origin "$BRANCH_NAME"
-echo -e "${GREEN}Done${NC}"
+capture "${GREEN}Done${NC}"
 
 # Fix script permissions
-echo ""
-echo -e "${BLUE}[2/9] Fixing script permissions...${NC}"
+capture ""
+capture "${BLUE}[2/9] Fixing script permissions...${NC}"
 chown root:atlas "$BACKEND_DIR/scripts/"*.py 2>/dev/null || true
 chmod 750 "$BACKEND_DIR/scripts/"*.py 2>/dev/null || true
-echo -e "${GREEN}Done${NC}"
+capture "${GREEN}Done${NC}"
 
 # Ensure logs directory exists
-echo ""
-echo -e "${BLUE}[3/9] Ensuring logs directory exists...${NC}"
+capture ""
+capture "${BLUE}[3/9] Ensuring logs directory exists...${NC}"
 if [ ! -d "$ATLAS_ROOT/logs" ]; then
     mkdir -p "$ATLAS_ROOT/logs"
-    echo -e "${YELLOW}Created $ATLAS_ROOT/logs${NC}"
+    capture "${YELLOW}Created $ATLAS_ROOT/logs${NC}"
 fi
 chown atlas:atlas "$ATLAS_ROOT/logs"
 chmod 755 "$ATLAS_ROOT/logs"
-echo -e "${GREEN}Done${NC}"
+capture "${GREEN}Done${NC}"
 
-# Fix systemd service if needed (ensure proper ReadWritePaths)
-echo ""
-echo -e "${BLUE}[4/9] Checking systemd service configuration...${NC}"
-SYSTEMD_FILE="/etc/systemd/system/atlas.service"
-if [ -f "$SYSTEMD_FILE" ]; then
-    # Check if ReadWritePaths includes both required paths
-    if grep -q "ReadWritePaths=" "$SYSTEMD_FILE"; then
-        CURRENT_PATHS=$(grep "ReadWritePaths=" "$SYSTEMD_FILE")
-        if [[ ! "$CURRENT_PATHS" =~ "atlas-backend" ]] || [[ ! "$CURRENT_PATHS" =~ "logs" ]]; then
-            echo -e "${YELLOW}Updating ReadWritePaths in systemd service...${NC}"
-            sed -i 's|ReadWritePaths=.*|ReadWritePaths=/opt/atlas/atlas-backend /opt/atlas/logs|' "$SYSTEMD_FILE"
-            systemctl daemon-reload
-            echo -e "${GREEN}Systemd service updated${NC}"
-        else
-            echo -e "${GREEN}Systemd configuration OK${NC}"
-        fi
-    else
-        echo -e "${YELLOW}Adding ReadWritePaths to systemd service...${NC}"
-        sed -i '/\[Service\]/a ReadWritePaths=/opt/atlas/atlas-backend /opt/atlas/logs' "$SYSTEMD_FILE"
-        systemctl daemon-reload
-        echo -e "${GREEN}Systemd service updated${NC}"
-    fi
+# Regenerate systemd service files
+capture ""
+capture "${BLUE}[4/9] Updating systemd service files...${NC}"
 
-    # Check if PATH includes /usr/bin (needed for git)
-    if grep -q 'Environment="PATH=' "$SYSTEMD_FILE"; then
-        CURRENT_ENV_PATH=$(grep 'Environment="PATH=' "$SYSTEMD_FILE")
-        if [[ ! "$CURRENT_ENV_PATH" =~ "/usr/bin" ]]; then
-            echo -e "${YELLOW}Updating PATH in systemd service (adding /usr/bin for git)...${NC}"
-            sed -i 's|Environment="PATH=/opt/atlas/atlas-backend/venv/bin"|Environment="PATH=/opt/atlas/atlas-backend/venv/bin:/usr/bin:/bin"|' "$SYSTEMD_FILE"
-            systemctl daemon-reload
-            echo -e "${GREEN}PATH updated${NC}"
-        fi
-    fi
-else
-    echo -e "${YELLOW}Systemd service file not found, skipping${NC}"
+# Write atlas.service from template
+cat > /etc/systemd/system/atlas.service << 'SVCEOF'
+[Unit]
+Description=ATLAS API Service (Asset, Telemetry, Location, & Analytics System)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=atlas
+Group=atlas
+WorkingDirectory=/opt/atlas/atlas-backend
+Environment="PATH=/opt/atlas/atlas-backend/venv/bin:/usr/bin:/bin"
+EnvironmentFile=/opt/atlas/atlas-backend/.env
+ExecStart=/opt/atlas/atlas-backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=/opt/atlas/atlas-backend /opt/atlas/logs
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+# Write atlas-update.service
+cat > /etc/systemd/system/atlas-update.service << 'SVCEOF'
+[Unit]
+Description=ATLAS Update Service
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/atlas
+ExecStart=/opt/atlas/update.sh main
+ExecStartPost=/bin/rm -f /opt/atlas/logs/trigger-update
+User=root
+StandardOutput=append:/opt/atlas/logs/update.log
+StandardError=append:/opt/atlas/logs/update.log
+SVCEOF
+
+# Write atlas-update.path
+cat > /etc/systemd/system/atlas-update.path << 'SVCEOF'
+[Unit]
+Description=Watch for ATLAS update trigger
+
+[Path]
+PathExists=/opt/atlas/logs/trigger-update
+Unit=atlas-update.service
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+systemctl daemon-reload
+systemctl enable atlas-update.path > /dev/null 2>&1 || true
+systemctl start atlas-update.path > /dev/null 2>&1 || true
+
+# Remove legacy atlas-ui.service if present
+if [ -f /etc/systemd/system/atlas-ui.service ]; then
+    systemctl stop atlas-ui.service 2>/dev/null || true
+    systemctl disable atlas-ui.service 2>/dev/null || true
+    rm -f /etc/systemd/system/atlas-ui.service
+    systemctl daemon-reload
+    capture "${YELLOW}Removed legacy atlas-ui.service${NC}"
 fi
 
+capture "${GREEN}Done${NC}"
+
 # Update Python dependencies
-echo ""
-echo -e "${BLUE}[5/9] Checking Python dependencies...${NC}"
+capture ""
+capture "${BLUE}[5/9] Checking Python dependencies...${NC}"
 if [ -f "$BACKEND_DIR/requirements.txt" ]; then
     cd "$BACKEND_DIR"
     source venv/bin/activate
     pip install -q -r requirements.txt
     deactivate
-    echo -e "${GREEN}Done${NC}"
+    capture "${GREEN}Done${NC}"
 else
-    echo -e "${YELLOW}No requirements.txt found, skipping${NC}"
+    capture "${YELLOW}No requirements.txt found, skipping${NC}"
 fi
 
 # Update npm dependencies
-echo ""
-echo -e "${BLUE}[6/9] Checking npm dependencies...${NC}"
+capture ""
+capture "${BLUE}[6/9] Checking npm dependencies...${NC}"
 cd "$FRONTEND_DIR"
 if [ -f "package.json" ]; then
     npm install --silent
-    echo -e "${GREEN}Done${NC}"
+    capture "${GREEN}Done${NC}"
 else
-    echo -e "${YELLOW}No package.json found, skipping${NC}"
+    capture "${YELLOW}No package.json found, skipping${NC}"
 fi
 
 # Rebuild frontend
-echo ""
-echo -e "${BLUE}[7/9] Rebuilding frontend...${NC}"
+capture ""
+capture "${BLUE}[7/9] Rebuilding frontend...${NC}"
 npm run build --silent
-echo -e "${GREEN}Done${NC}"
+capture "${GREEN}Done${NC}"
 
 # Run database migrations
-echo ""
-echo -e "${BLUE}[8/9] Running database migrations...${NC}"
+capture ""
+capture "${BLUE}[8/9] Running database migrations...${NC}"
 cd "$BACKEND_DIR"
 source venv/bin/activate
 python3 -c "
@@ -290,45 +357,59 @@ from app.database import engine, Base
 from app.models import *
 Base.metadata.create_all(bind=engine)
 print('Database tables verified')
-" 2>/dev/null || echo -e "${YELLOW}Warning: Could not verify database tables${NC}"
+" 2>/dev/null || capture "${YELLOW}Warning: Could not verify database tables${NC}"
 deactivate
-echo -e "${GREEN}Done${NC}"
+capture "${GREEN}Done${NC}"
 
 # Restart service
-echo ""
-echo -e "${BLUE}[9/9] Restarting ATLAS service...${NC}"
+capture ""
+capture "${BLUE}[9/9] Restarting ATLAS service...${NC}"
 if systemctl is-active --quiet atlas.service; then
     systemctl restart atlas.service
     sleep 2
     if systemctl is-active --quiet atlas.service; then
-        echo -e "${GREEN}Service restarted successfully${NC}"
+        capture "${GREEN}Service restarted successfully${NC}"
     else
-        echo -e "${RED}Warning: Service failed to start!${NC}"
-        echo "Check logs with: journalctl -u atlas.service -n 50"
+        capture "${RED}Warning: Service failed to start!${NC}"
+        capture "Check logs with: journalctl -u atlas.service -n 50"
+        # Get new version info for log even on failure
+        NEW_VERSION=$(cat "$ATLAS_ROOT/VERSION" 2>/dev/null || echo "unknown")
+        NEW_COMMIT=$(cd "$ATLAS_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        write_update_log "failed" "$NEW_VERSION" "$NEW_COMMIT"
         exit 1
     fi
 else
-    echo -e "${YELLOW}Service was not running, starting it...${NC}"
+    capture "${YELLOW}Service was not running, starting it...${NC}"
     systemctl start atlas.service
     sleep 2
     if systemctl is-active --quiet atlas.service; then
-        echo -e "${GREEN}Service started successfully${NC}"
+        capture "${GREEN}Service started successfully${NC}"
     else
-        echo -e "${RED}Warning: Service failed to start!${NC}"
-        echo "Check logs with: journalctl -u atlas.service -n 50"
+        capture "${RED}Warning: Service failed to start!${NC}"
+        capture "Check logs with: journalctl -u atlas.service -n 50"
+        NEW_VERSION=$(cat "$ATLAS_ROOT/VERSION" 2>/dev/null || echo "unknown")
+        NEW_COMMIT=$(cd "$ATLAS_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        write_update_log "failed" "$NEW_VERSION" "$NEW_COMMIT"
         exit 1
     fi
 fi
 
+# Get new version info
+NEW_VERSION=$(cat "$ATLAS_ROOT/VERSION" 2>/dev/null || echo "unknown")
+NEW_COMMIT=$(cd "$ATLAS_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
 # Show new version
-echo ""
-echo -e "${BLUE}========================================${NC}"
-echo -e "${GREEN}Update complete!${NC}"
-echo -e "${BLUE}========================================${NC}"
-echo ""
-echo -e "${YELLOW}New version:${NC}"
-git log -1 --format="  %h %s (%cr)"
-echo ""
-echo -e "${YELLOW}Service status:${NC}"
-systemctl status atlas.service --no-pager | head -5
-echo ""
+capture ""
+capture "${BLUE}========================================${NC}"
+capture "${GREEN}Update complete!${NC}"
+capture "${BLUE}========================================${NC}"
+capture ""
+capture "${YELLOW}New version:${NC}"
+capture "  $(cd "$ATLAS_ROOT" && git log -1 --format='%h %s (%cr)')"
+capture ""
+capture "${YELLOW}Service status:${NC}"
+capture "$(systemctl status atlas.service --no-pager | head -5)"
+capture ""
+
+# Write success back to UpdateLog
+write_update_log "success" "$NEW_VERSION" "$NEW_COMMIT"

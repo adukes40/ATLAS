@@ -27,11 +27,11 @@ echo ""
 echo -e "${YELLOW}${BOLD}WARNING: This will completely remove ATLAS from this system!${NC}"
 echo ""
 echo "The following will be removed:"
-echo "  - ATLAS service (systemd)"
+echo "  - ATLAS services (atlas, atlas-update, atlas-ui)"
 echo "  - ATLAS files ($ATLAS_ROOT)"
 echo "  - ATLAS user account ($ATLAS_USER)"
 echo "  - Nginx configuration"
-echo "  - Cron jobs"
+echo "  - Cron jobs (legacy)"
 echo "  - PostgreSQL database and user (optional)"
 echo ""
 
@@ -52,33 +52,38 @@ fi
 echo ""
 
 # ---------------------------------------------------------
-# 1. Stop and disable ATLAS service
+# 1. Stop and disable all ATLAS services
 # ---------------------------------------------------------
-echo -e "${BLUE}[1/7] Stopping ATLAS service...${NC}"
-if systemctl is-active --quiet atlas.service 2>/dev/null; then
-    systemctl stop atlas.service
-    echo -e "${GREEN}Service stopped${NC}"
-else
-    echo -e "${YELLOW}Service not running${NC}"
-fi
+echo -e "${BLUE}[1/7] Stopping ATLAS services...${NC}"
 
-if systemctl is-enabled --quiet atlas.service 2>/dev/null; then
-    systemctl disable atlas.service 2>/dev/null || true
-    echo -e "${GREEN}Service disabled${NC}"
-fi
+for svc in atlas.service atlas-ui.service atlas-update.service atlas-update.path; do
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+        systemctl stop "$svc" 2>/dev/null || true
+        echo -e "${GREEN}Stopped $svc${NC}"
+    fi
+    if systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+        systemctl disable "$svc" 2>/dev/null || true
+        echo -e "${GREEN}Disabled $svc${NC}"
+    fi
+done
+
+echo -e "${GREEN}Services stopped${NC}"
 
 # ---------------------------------------------------------
-# 2. Remove systemd service file
+# 2. Remove systemd service files
 # ---------------------------------------------------------
 echo ""
-echo -e "${BLUE}[2/7] Removing systemd service...${NC}"
-if [ -f /etc/systemd/system/atlas.service ]; then
-    rm -f /etc/systemd/system/atlas.service
-    systemctl daemon-reload
-    echo -e "${GREEN}Systemd service removed${NC}"
-else
-    echo -e "${YELLOW}Systemd service not found${NC}"
-fi
+echo -e "${BLUE}[2/7] Removing systemd services...${NC}"
+
+for svcfile in atlas.service atlas-ui.service atlas-update.service atlas-update.path; do
+    if [ -f "/etc/systemd/system/$svcfile" ]; then
+        rm -f "/etc/systemd/system/$svcfile"
+        echo -e "${GREEN}Removed $svcfile${NC}"
+    fi
+done
+
+systemctl daemon-reload
+echo -e "${GREEN}Systemd services removed${NC}"
 
 # ---------------------------------------------------------
 # 3. Remove nginx configuration
@@ -109,16 +114,24 @@ if systemctl is-active --quiet nginx 2>/dev/null; then
 fi
 
 # ---------------------------------------------------------
-# 4. Remove cron jobs
+# 4. Remove cron jobs (legacy cleanup)
 # ---------------------------------------------------------
 echo ""
 echo -e "${BLUE}[4/7] Removing cron jobs...${NC}"
+
+# Remove /etc/cron.d/atlas file
 if [ -f /etc/cron.d/atlas ]; then
     rm -f /etc/cron.d/atlas
-    echo -e "${GREEN}Cron jobs removed${NC}"
-else
-    echo -e "${YELLOW}Cron jobs not found${NC}"
+    echo -e "${GREEN}Removed /etc/cron.d/atlas${NC}"
 fi
+
+# Remove any atlas entries from root crontab
+if crontab -l 2>/dev/null | grep -qi "atlas"; then
+    crontab -l 2>/dev/null | grep -vi "atlas" | crontab - 2>/dev/null || true
+    echo -e "${GREEN}Removed atlas entries from root crontab${NC}"
+fi
+
+echo -e "${GREEN}Cron cleanup complete${NC}"
 
 # ---------------------------------------------------------
 # 5. Remove ATLAS directory

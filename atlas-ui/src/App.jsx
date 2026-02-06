@@ -8,10 +8,6 @@ import Sidebar from './components/Sidebar'
 import NotificationBell from './components/NotificationBell'
 import UpdateBadge from './components/UpdateBadge'
 import Device360 from './pages/Device360'
-import DashboardsIndex from './pages/Dashboards/index'
-import GoogleDashboard from './pages/Dashboards/GoogleDashboard'
-import IIQDashboard from './pages/Dashboards/IIQDashboard'
-import MerakiDashboard from './pages/Dashboards/MerakiDashboard'
 import ReportsIndex from './pages/Reports/index'
 import UtilitiesIndex from './pages/Utilities/index'
 import SettingsIndex from './pages/Settings/index'
@@ -156,10 +152,6 @@ function AppLayout() {
         <main className={`${contentWidthClass} py-6 md:py-8`}>
           <Routes>
             <Route path="/" element={<Device360 />} />
-            <Route path="/dashboards" element={<DashboardsIndex />} />
-            <Route path="/dashboards/google" element={<GoogleDashboard />} />
-            <Route path="/dashboards/iiq" element={<IIQDashboard />} />
-            <Route path="/dashboards/meraki" element={<MerakiDashboard />} />
             <Route path="/reports/*" element={<ReportsIndex />} />
             <Route path="/utilities/*" element={<UtilitiesIndex />} />
             <Route path="/settings/*" element={<SettingsIndex />} />

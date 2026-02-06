@@ -160,6 +160,23 @@ export default function SyncPanel({ service }) {
   const [showColorPicker, setShowColorPicker] = useState(false)
   const colorPickerRef = useRef(null)
 
+  // Track colors used by other platforms for uniqueness enforcement
+  const [otherColors, setOtherColors] = useState(() => {
+    const allPlatforms = ['iiq', 'google', 'meraki']
+    const taken = {}
+    try {
+      const stored = localStorage.getItem('atlas_platform_colors')
+      const colors = stored ? JSON.parse(stored) : {}
+      allPlatforms.forEach(p => {
+        if (p !== service) {
+          const color = colors[p] || DEFAULT_COLORS[p]
+          taken[color] = p
+        }
+      })
+    } catch {}
+    return taken
+  })
+
   // State
   const [syncStatus, setSyncStatus] = useState(null)
   const [schedule, setSchedule] = useState(null)
@@ -186,6 +203,27 @@ export default function SyncPanel({ service }) {
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showColorPicker])
+
+  // Listen for color changes from other panels
+  useEffect(() => {
+    const handleColorsChange = () => {
+      const allPlatforms = ['iiq', 'google', 'meraki']
+      const taken = {}
+      try {
+        const stored = localStorage.getItem('atlas_platform_colors')
+        const colors = stored ? JSON.parse(stored) : {}
+        allPlatforms.forEach(p => {
+          if (p !== service) {
+            const color = colors[p] || DEFAULT_COLORS[p]
+            taken[color] = p
+          }
+        })
+      } catch {}
+      setOtherColors(taken)
+    }
+    window.addEventListener('atlas-colors-changed', handleColorsChange)
+    return () => window.removeEventListener('atlas-colors-changed', handleColorsChange)
+  }, [service])
 
   // Handle color selection
   const handleColorSelect = (color) => {
@@ -545,22 +583,31 @@ export default function SyncPanel({ service }) {
               {showColorPicker && (
                 <div className="absolute right-0 top-8 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 p-4 z-20">
                   <div className="grid grid-cols-3 gap-4">
-                    {Object.entries(AVAILABLE_COLORS).map(([key, colorOption]) => (
-                      <button
-                        key={key}
-                        onClick={() => handleColorSelect(key)}
-                        className={`w-9 h-9 rounded-full ${colorOption.dot} flex items-center justify-center transition-all ${
-                          selectedColor === key
-                            ? 'ring-2 ring-offset-2 ring-offset-white dark:ring-offset-slate-800 ' + colorOption.ring
-                            : 'hover:scale-110'
-                        }`}
-                        title={colorOption.name}
-                      >
-                        {selectedColor === key && (
-                          <Check className="h-4 w-4 text-white" />
-                        )}
-                      </button>
-                    ))}
+                    {Object.entries(AVAILABLE_COLORS).map(([key, colorOption]) => {
+                      const takenBy = otherColors[key]
+                      const isDisabled = !!takenBy
+                      const platformNames = { iiq: 'Incident IQ', google: 'Google', meraki: 'Meraki' }
+
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => !isDisabled && handleColorSelect(key)}
+                          disabled={isDisabled}
+                          className={`w-9 h-9 rounded-full ${colorOption.dot} flex items-center justify-center transition-all ${
+                            isDisabled
+                              ? 'opacity-30 cursor-not-allowed'
+                              : selectedColor === key
+                                ? 'ring-2 ring-offset-2 ring-offset-white dark:ring-offset-slate-800 ' + colorOption.ring
+                                : 'hover:scale-110'
+                          }`}
+                          title={isDisabled ? `Used by ${platformNames[takenBy]}` : colorOption.name}
+                        >
+                          {selectedColor === key && !isDisabled && (
+                            <Check className="h-4 w-4 text-white" />
+                          )}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               )}

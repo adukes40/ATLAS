@@ -32,6 +32,8 @@ class IIQAsset(Base):
     model: Mapped[Optional[str]] = mapped_column(String)
     model_category: Mapped[Optional[str]] = mapped_column(String) # e.g. "Chromebook"
     status: Mapped[Optional[str]] = mapped_column(String)         # e.g. "Deployed"
+    status_type_id: Mapped[Optional[str]] = mapped_column(String) # IIQ status UUID for write-backs
+    location_id: Mapped[Optional[str]] = mapped_column(String)    # IIQ location UUID for write-backs
     mac_address: Mapped[Optional[str]] = mapped_column(String)
     
     # Expanded Owner Data
@@ -532,3 +534,20 @@ class OuiVendor(Base):
     vendor_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# --- SAVED REPORTS (Custom Report Builder) ---
+class SavedReport(Base):
+    """
+    Saved custom report configurations from the report builder.
+    Stores column selections, filters, and sort rules as JSON.
+    """
+    __tablename__ = "saved_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    folder: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    config: Mapped[dict] = mapped_column(JSON, nullable=False)  # {columns: [], filters: [], sort: []}
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

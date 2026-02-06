@@ -202,6 +202,8 @@ export default function ReportTable({
   sortColumn,
   sortOrder,
   onSort,
+  sortRules,
+  onSortChange,
   page,
   totalPages,
   total,
@@ -246,13 +248,40 @@ export default function ReportTable({
     setActionPanelDevices([row])
   }
 
-  // Handle column sort
-  const handleSort = (column) => {
+  // Handle column sort (supports both legacy single-sort and multi-sort modes)
+  const handleSort = (column, event) => {
     if (column.sortable === false) return
-    if (sortColumn === column.key) {
-      onSort(column.key, sortOrder === 'asc' ? 'desc' : 'asc')
-    } else {
-      onSort(column.key, 'asc')
+
+    if (onSortChange && sortRules !== undefined) {
+      // Multi-sort mode
+      const existing = sortRules.find(r => r.column === column.key)
+      if (event && event.shiftKey) {
+        if (existing) {
+          if (existing.direction === 'asc') {
+            onSortChange(sortRules.map(r => r.column === column.key ? { ...r, direction: 'desc' } : r))
+          } else {
+            // Remove and re-number priorities
+            const filtered = sortRules.filter(r => r.column !== column.key)
+            onSortChange(filtered.map((r, i) => ({ ...r, priority: i + 1 })))
+          }
+        } else {
+          onSortChange([...sortRules, { column: column.key, direction: 'asc', priority: sortRules.length + 1 }])
+        }
+      } else {
+        if (existing && existing.direction === 'asc') {
+          onSortChange([{ column: column.key, direction: 'desc', priority: 1 }])
+        } else if (existing && existing.direction === 'desc') {
+          onSortChange([])
+        } else {
+          onSortChange([{ column: column.key, direction: 'asc', priority: 1 }])
+        }
+      }
+    } else if (onSort) {
+      if (sortColumn === column.key) {
+        onSort(column.key, sortOrder === 'asc' ? 'desc' : 'asc')
+      } else {
+        onSort(column.key, 'asc')
+      }
     }
   }
 
@@ -357,24 +386,45 @@ export default function ReportTable({
                     className="h-4 w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500 cursor-pointer"
                   />
                 </th>
-                {columns.map((col) => (
-                  <th
-                    key={col.key}
-                    onClick={() => col.sortable !== false && handleSort(col)}
-                    className={`text-left py-3.5 px-4 font-semibold text-white ${
-                      col.sortable !== false ? 'cursor-pointer hover:bg-slate-600 dark:hover:bg-slate-800 select-none transition-colors' : ''
-                    }`}
-                  >
-                    <div className="flex items-center gap-1">
-                      {col.label}
-                      {col.sortable !== false && sortColumn === col.key && (
-                        sortOrder === 'asc'
-                          ? <ChevronUp className="h-4 w-4 text-blue-400" />
-                          : <ChevronDown className="h-4 w-4 text-blue-400" />
-                      )}
-                    </div>
-                  </th>
-                ))}
+                {columns.map((col) => {
+                  const multiSortRule = (onSortChange && sortRules !== undefined)
+                    ? sortRules.find(r => r.column === col.key)
+                    : null
+                  const isMultiSort = onSortChange && sortRules !== undefined
+                  const showMultiBadge = isMultiSort && sortRules.length > 1
+
+                  return (
+                    <th
+                      key={col.key}
+                      onClick={(e) => col.sortable !== false && handleSort(col, e)}
+                      className={`text-left py-3.5 px-4 font-semibold text-white ${
+                        col.sortable !== false ? 'cursor-pointer hover:bg-slate-600 dark:hover:bg-slate-800 select-none transition-colors' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-1">
+                        {col.label}
+                        {col.sortable !== false && isMultiSort && multiSortRule && (
+                          <>
+                            {multiSortRule.direction === 'asc'
+                              ? <ChevronUp className="h-4 w-4 text-blue-400" />
+                              : <ChevronDown className="h-4 w-4 text-blue-400" />
+                            }
+                            {showMultiBadge && (
+                              <span className="ml-0.5 text-[10px] bg-blue-500 text-white rounded-full w-3.5 h-3.5 inline-flex items-center justify-center">
+                                {multiSortRule.priority}
+                              </span>
+                            )}
+                          </>
+                        )}
+                        {col.sortable !== false && !isMultiSort && sortColumn === col.key && (
+                          sortOrder === 'asc'
+                            ? <ChevronUp className="h-4 w-4 text-blue-400" />
+                            : <ChevronDown className="h-4 w-4 text-blue-400" />
+                        )}
+                      </div>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>

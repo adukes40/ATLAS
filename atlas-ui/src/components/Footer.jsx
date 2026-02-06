@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Github, GitBranch, Mail } from 'lucide-react'
+import { GitBranch, Mail } from 'lucide-react'
 import axios from 'axios'
 
 export default function Footer({ className = '', districtName, supportEmail }) {
@@ -38,21 +38,9 @@ export default function Footer({ className = '', districtName, supportEmail }) {
           <span className="text-xs text-slate-400">A unified IT operations platform for K-12 school districts</span>
         </div>
         
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2" title={version.commit ? `Commit: ${version.commit}` : 'Project Version'}>
-            <GitBranch className="h-4 w-4" />
-            <span className="font-mono">v{version.version}</span>
-          </div>
-          
-          <a 
-            href="https://github.com/adukes40/ATLAS" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
-          >
-            <Github className="h-4 w-4" />
-            <span>adukes40/ATLAS</span>
-          </a>
+        <div className="flex items-center gap-2" title={version.commit ? `Commit: ${version.commit}` : 'Project Version'}>
+          <GitBranch className="h-4 w-4" />
+          <span className="font-mono">v{version.version}</span>
         </div>
       </div>
     </footer>
