@@ -249,11 +249,13 @@ export default function Device360() {
                     <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 shadow-sm">
                         <div className="flex flex-col gap-4">
                             {/* Status Header */}
+                            {data.sources.google?.status && (
                             <div className="flex items-center justify-end">
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${getStatusBadge(data.sources.google?.status || 'Unknown')}`}>
-                                    {data.sources.google?.status || 'Unknown'}
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${getStatusBadge(data.sources.google.status)}`}>
+                                    {data.sources.google.status}
                                 </span>
                             </div>
+                            )}
 
                             {/* Identifiers */}
                             <div className="space-y-1">
@@ -403,7 +405,7 @@ export default function Device360() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
 
              {/* Google Hardware Health */}
-             {integrations.google && (
+             {integrations.google && data.sources.google && (
              <div className={`bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 ${getVendorBorderClass('google')}`}>
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-2 text-slate-800 dark:text-slate-100 font-bold">
@@ -479,7 +481,7 @@ export default function Device360() {
              )}
 
              {/* Network & Software (Google) */}
-             {integrations.google && (
+             {integrations.google && data.sources.google && (
              <div className={`bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 ${getVendorBorderClass('google')}`}>
                 <div className="flex items-center gap-2 mb-6 text-slate-800 dark:text-slate-100 font-bold">
                     <Wifi className="h-5 w-5 text-emerald-500" />

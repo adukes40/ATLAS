@@ -318,7 +318,7 @@ export default function ReportTable({
       </div>
 
       {/* Filters Container - Fixed */}
-      <div className="bg-white dark:bg-slate-800 rounded-xl border-2 border-slate-200 dark:border-slate-700 p-4 shadow-sm mb-4 flex-shrink-0">
+      <div className="bg-white dark:bg-slate-800 rounded-xl border-2 border-slate-200 dark:border-slate-700 p-4 shadow-sm mb-4 flex-shrink-0 overflow-visible relative z-20">
         <div className="flex items-center gap-2 mb-4">
           <Filter className="h-4 w-4 text-slate-500 dark:text-slate-400" />
           <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Filters</span>

@@ -529,6 +529,35 @@ class GoogleConnector:
             body=body
         ).execute()
 
+    def powerwash_device(self, device_id: str):
+        """Issue a remote PowerWash command followed by a Reboot to force execution.
+        Returns the PowerWash API response which includes commandId and state."""
+        pw_result = self.service.customer().devices().chromeos().issueCommand(
+            customerId='my_customer',
+            deviceId=device_id,
+            body={"commandType": "REMOTE_POWERWASH"}
+        ).execute()
+
+        # Follow up with a REBOOT to force the device to check in and pick up the PowerWash
+        try:
+            self.service.customer().devices().chromeos().issueCommand(
+                customerId='my_customer',
+                deviceId=device_id,
+                body={"commandType": "REBOOT"}
+            ).execute()
+        except Exception:
+            pass  # Best-effort; PowerWash is already queued
+
+        return pw_result
+
+    def reboot_device(self, device_id: str):
+        """Issue a remote Reboot command to a Chrome OS device."""
+        return self.service.customer().devices().chromeos().issueCommand(
+            customerId='my_customer',
+            deviceId=device_id,
+            body={"commandType": "REBOOT"}
+        ).execute()
+
     def move_device_ou(self, device_id: str, target_ou: str):
         """Move a Chrome OS device to a different organizational unit."""
         body = {

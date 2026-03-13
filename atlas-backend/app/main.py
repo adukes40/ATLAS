@@ -130,9 +130,197 @@ app.include_router(system.router)
 # =============================================================================
 # STARTUP / SHUTDOWN
 # =============================================================================
+def seed_system_reports():
+    """Seed system report templates into saved_reports table (idempotent)."""
+    from app.database import SessionLocal
+    from app.models import SavedReport
+
+    SYSTEM_TEMPLATES = [
+        {
+            "name": "Device Inventory",
+            "system_slug": "device-inventory",
+            "config": {
+                "query_type": "standard",
+                "columns": [
+                    {"source": "iiq_assets", "field": "asset_tag"},
+                    {"source": "iiq_assets", "field": "serial_number"},
+                    {"source": "iiq_assets", "field": "model"},
+                    {"source": "iiq_assets", "field": "model_category"},
+                    {"source": "iiq_assets", "field": "status"},
+                    {"source": "google_devices", "field": "status"},
+                    {"source": "iiq_assets", "field": "location"},
+                    {"source": "iiq_assets", "field": "assigned_user_name"},
+                    {"source": "iiq_assets", "field": "assigned_user_grade"},
+                    {"source": "google_devices", "field": "aue_date"},
+                ],
+                "filters": [],
+                "sort": [{"source": "iiq_assets", "field": "serial_number", "direction": "asc"}],
+            },
+        },
+        {
+            "name": "AUE / End-of-Life",
+            "system_slug": "aue-eol",
+            "config": {
+                "query_type": "standard",
+                "columns": [
+                    {"source": "google_devices", "field": "serial_number"},
+                    {"source": "google_devices", "field": "model"},
+                    {"source": "google_devices", "field": "aue_date"},
+                    {"source": "google_devices", "field": "status"},
+                    {"source": "google_devices", "field": "os_version"},
+                    {"source": "google_devices", "field": "org_unit_path"},
+                    {"source": "iiq_assets", "field": "status"},
+                    {"source": "iiq_assets", "field": "assigned_user_name"},
+                ],
+                "filters": [],
+                "sort": [{"source": "google_devices", "field": "aue_date", "direction": "asc"}],
+            },
+        },
+        {
+            "name": "Fee Balances",
+            "system_slug": "fee-balances",
+            "config": {
+                "query_type": "specialized",
+                "specialized_key": "fee_balances",
+                "columns": [
+                    {"source": "iiq_users", "field": "full_name"},
+                    {"source": "iiq_users", "field": "school_id_number"},
+                    {"source": "iiq_users", "field": "email"},
+                    {"source": "iiq_users", "field": "grade"},
+                    {"source": "iiq_users", "field": "location_name"},
+                    {"source": "iiq_users", "field": "fee_balance"},
+                    {"source": "iiq_users", "field": "fee_past_due"},
+                ],
+                "filters": [],
+                "sort": [{"source": "iiq_users", "field": "fee_balance", "direction": "desc"}],
+                "allowed_sources": ["iiq_users"],
+            },
+        },
+        {
+            "name": "Students Without Chromebook",
+            "system_slug": "no-chromebook",
+            "config": {
+                "query_type": "specialized",
+                "specialized_key": "no_chromebook",
+                "columns": [
+                    {"source": "iiq_users", "field": "full_name"},
+                    {"source": "iiq_users", "field": "email"},
+                    {"source": "iiq_users", "field": "school_id_number"},
+                    {"source": "iiq_users", "field": "grade"},
+                    {"source": "iiq_users", "field": "location_name"},
+                    {"source": "iiq_users", "field": "homeroom"},
+                ],
+                "filters": [],
+                "sort": [{"source": "iiq_users", "field": "full_name", "direction": "asc"}],
+                "allowed_sources": ["iiq_users"],
+            },
+        },
+        {
+            "name": "Multiple Devices",
+            "system_slug": "multiple-devices",
+            "config": {
+                "query_type": "specialized",
+                "specialized_key": "multiple_devices",
+                "columns": [
+                    {"source": "iiq_users", "field": "full_name"},
+                    {"source": "iiq_users", "field": "email"},
+                    {"source": "iiq_users", "field": "grade"},
+                    {"source": "iiq_users", "field": "location_name"},
+                ],
+                "filters": [],
+                "sort": [{"source": "iiq_assets", "field": "device_count", "direction": "desc"}],
+                "allowed_sources": ["iiq_users", "iiq_assets"],
+            },
+        },
+        {
+            "name": "Infrastructure Inventory",
+            "system_slug": "infrastructure-inventory",
+            "config": {
+                "query_type": "standard",
+                "columns": [
+                    {"source": "meraki_devices", "field": "serial"},
+                    {"source": "meraki_devices", "field": "name"},
+                    {"source": "meraki_devices", "field": "model"},
+                    {"source": "meraki_devices", "field": "product_type"},
+                    {"source": "meraki_devices", "field": "status"},
+                    {"source": "meraki_devices", "field": "mac"},
+                    {"source": "meraki_devices", "field": "lan_ip"},
+                    {"source": "meraki_devices", "field": "firmware"},
+                    {"source": "meraki_networks", "field": "name"},
+                    {"source": "meraki_devices", "field": "last_updated"},
+                ],
+                "filters": [],
+                "sort": [{"source": "meraki_devices", "field": "name", "direction": "asc"}],
+            },
+        },
+        {
+            "name": "Firmware Compliance",
+            "system_slug": "firmware-compliance",
+            "config": {
+                "query_type": "standard",
+                "columns": [
+                    {"source": "meraki_devices", "field": "name"},
+                    {"source": "meraki_devices", "field": "model"},
+                    {"source": "meraki_devices", "field": "product_type"},
+                    {"source": "meraki_devices", "field": "firmware"},
+                    {"source": "meraki_devices", "field": "status"},
+                    {"source": "meraki_networks", "field": "name"},
+                    {"source": "meraki_devices", "field": "last_updated"},
+                ],
+                "filters": [],
+                "sort": [{"source": "meraki_devices", "field": "firmware", "direction": "asc"}],
+            },
+        },
+    ]
+
+    db = SessionLocal()
+    try:
+        for tmpl in SYSTEM_TEMPLATES:
+            existing = db.query(SavedReport).filter(
+                SavedReport.system_slug == tmpl["system_slug"]
+            ).first()
+            if not existing:
+                import copy
+                report = SavedReport(
+                    name=tmpl["name"],
+                    folder=None,
+                    config=tmpl["config"],
+                    is_system=True,
+                    system_slug=tmpl["system_slug"],
+                    default_config=copy.deepcopy(tmpl["config"]),
+                    created_by="system",
+                )
+                db.add(report)
+        db.commit()
+        print(f">> System report templates verified")
+    except Exception as e:
+        db.rollback()
+        print(f"!! Failed to seed system reports: {e}")
+    finally:
+        db.close()
+
+
 @app.on_event("startup")
 async def startup_event():
     Base.metadata.create_all(bind=engine)
+
+    # Migrate saved_reports table: add template columns if missing
+    from sqlalchemy import text, inspect
+    inspector = inspect(engine)
+    if 'saved_reports' in inspector.get_table_names():
+        existing_cols = {c['name'] for c in inspector.get_columns('saved_reports')}
+        with engine.begin() as conn:
+            if 'is_system' not in existing_cols:
+                conn.execute(text("ALTER TABLE saved_reports ADD COLUMN is_system BOOLEAN DEFAULT FALSE"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_saved_reports_is_system ON saved_reports (is_system)"))
+            if 'system_slug' not in existing_cols:
+                conn.execute(text("ALTER TABLE saved_reports ADD COLUMN system_slug VARCHAR(50) UNIQUE"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_saved_reports_system_slug ON saved_reports (system_slug)"))
+            if 'default_config' not in existing_cols:
+                conn.execute(text("ALTER TABLE saved_reports ADD COLUMN default_config JSON"))
+
+    seed_system_reports()
+
     print(">> ATLAS Systems Online: Database Connected & Routes Loaded.")
     print(">> Authentication: ENABLED")
     print(">> Rate Limiting: ENABLED")

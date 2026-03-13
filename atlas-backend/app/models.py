@@ -423,6 +423,11 @@ class IIQTicket(Base):
     """
     IIQ ticket data synced from the tickets API.
     Tracks help desk tickets, their status, and associated assets/users.
+
+    IIQ terminology:
+      Owner = Requester (person who submitted the ticket)
+      For = Submitted For (person the ticket is about, often same as Owner)
+      AssignedToUser = Agent (tech assigned to work the ticket)
     """
     __tablename__ = "iiq_tickets"
 
@@ -430,23 +435,42 @@ class IIQTicket(Base):
     ticket_number: Mapped[Optional[int]] = mapped_column(Integer, index=True, nullable=True)
     subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[Optional[str]] = mapped_column(String(100), index=True, nullable=True)
-    priority: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    category: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    status: Mapped[Optional[str]] = mapped_column(String(100), index=True, nullable=True)       # WorkflowStep.StepName
+    is_closed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, index=True)       # IsClosed flag
+    priority: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)                  # Mapped: Urgent/High/Normal
+    is_urgent: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)                    # IsUrgent flag
+    category: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)                  # Issue.Name (leaf)
+    issue_category: Mapped[Optional[str]] = mapped_column(String(200), index=True, nullable=True)  # Issue.IssueCategoryName (top-level)
+    source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)                     # Portal/Email/Walk-in
     created_date: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True, nullable=True)
     modified_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     closed_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    close_reason: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)              # CloseReason.Name
+
+    # Requester (IIQ "Owner" = person who submitted)
     owner_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     owner_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     owner_email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    # Submitted For (IIQ "For" = person the ticket is about)
+    for_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    for_email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    for_location: Mapped[Optional[str]] = mapped_column(String(200), index=True, nullable=True)  # Requester's building
+    for_role: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)                   # Student/Faculty/Staff
+
+    # Agent (IIQ "AssignedToUser" = tech assigned)
     assignee_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     assignee_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    assignee_email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    # Team
     team_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     team_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    asset_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    asset_tag: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # Location (where the issue is, not requester's building)
     location_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     location_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
     last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     meta_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
@@ -551,3 +575,6 @@ class SavedReport(Base):
     created_by: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    system_slug: Mapped[Optional[str]] = mapped_column(String(50), unique=True, nullable=True, index=True)
+    default_config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
