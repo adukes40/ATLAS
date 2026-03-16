@@ -22,7 +22,7 @@ _ENV_FALLBACKS = {
     "iiq_site_id": os.getenv("IIQ_SITE_ID"),
     "iiq_product_id": os.getenv("IIQ_PRODUCT_ID"),
     "google_admin_email": os.getenv("GOOGLE_ADMIN_EMAIL"),
-    "google_creds_path": os.getenv("GOOGLE_CREDS_PATH", "google_credentials.json"),
+    "google_creds_path": os.getenv("GOOGLE_CREDS_PATH"),
     "meraki_api_key": os.getenv("MERAKI_API_KEY"),
     "meraki_org_id": os.getenv("MERAKI_ORG_ID"),
     "oauth_client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID"),

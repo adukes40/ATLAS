@@ -19,7 +19,7 @@ export default function DistrictSettings() {
         const res = await axios.get('/api/settings')
         const data = res.data.settings || {}
         setSettings({
-          district_name: data.district_name || 'Caesar Rodney School District',
+          district_name: data.district_name || 'Your School District',
           support_email: data.support_email || ''
         })
       } catch (err) {
@@ -110,7 +110,7 @@ export default function DistrictSettings() {
             name="district_name"
             value={settings.district_name}
             onChange={handleChange}
-            placeholder="e.g. Caesar Rodney School District"
+            placeholder="e.g. Your School District"
             className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">

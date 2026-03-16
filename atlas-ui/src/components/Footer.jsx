@@ -23,7 +23,7 @@ export default function Footer({ className = '', districtName, supportEmail }) {
         <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-6">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-slate-700 dark:text-slate-200">ATLAS</span>
-            <span>&copy; {new Date().getFullYear()} {districtName || 'Caesar Rodney School District'}</span>
+            <span>&copy; {new Date().getFullYear()} {districtName || 'Your School District'}</span>
           </div>
           {supportEmail && (
             <a href={`mailto:${supportEmail}`} className="flex items-center gap-1.5 hover:text-slate-800 dark:hover:text-slate-200 transition-colors">

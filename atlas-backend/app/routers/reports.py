@@ -35,28 +35,32 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 # OVERVIEW / DASHBOARD STATISTICS
 # =============================================================================
 
-# Location abbreviation mapping for cleaner charts
-LOCATION_ABBREVIATIONS = {
-    "Caesar Rodney High School": "CRHS",
-    "Fred Fifer III Middle School": "Fifer MS",
-    "F. Niel Postlethwait Middle School": "Postlethwait MS",
-    "Allen Frear Elementary School": "Frear ES",
-    "Nellie Hughes Stokes Elementary School": "Stokes ES",
-    "W. Reily Brown Elementary School": "Brown ES",
-    "John S. Charlton School": "Charlton",
-    "Magnolia Middle School": "Magnolia MS",
-    "David E. Robinson Elementary School": "Robinson ES",
-    "W.B. Simpson Elementary School": "Simpson ES",
-    "Major George S. Welch Elementary School": "Welch ES",
-    "Dover Air Force Base Middle School": "DAFB MS",
-    "Star Hill Elementary School": "Star Hill ES",
-    "Unassigned": "Unassigned",
-    "Unknown": "Unknown",
-}
+# Location abbreviation mapping for cleaner charts — loaded from DB setting
+_location_abbreviations_cache = None
 
-def abbreviate_location(name: str) -> str:
+def _get_location_abbreviations(db: Session) -> dict:
+    """Load location abbreviations from database setting, with caching."""
+    global _location_abbreviations_cache
+    if _location_abbreviations_cache is not None:
+        return _location_abbreviations_cache
+    try:
+        from app.services.settings_service import get_setting
+        raw = get_setting(db, "location_abbreviations")
+        if raw:
+            _location_abbreviations_cache = json.loads(raw)
+            return _location_abbreviations_cache
+    except Exception:
+        pass
+    _location_abbreviations_cache = {}
+    return _location_abbreviations_cache
+
+def abbreviate_location(name: str, db: Session = None) -> str:
     """Return abbreviated location name for charts."""
-    return LOCATION_ABBREVIATIONS.get(name, name[:15] + "..." if len(name) > 15 else name)
+    if db:
+        abbrevs = _get_location_abbreviations(db)
+        if name in abbrevs:
+            return abbrevs[name]
+    return name[:15] + "..." if len(name) > 15 else name
 
 
 @router.get("/overview/stats")
@@ -349,7 +353,7 @@ def get_iiq_stats(request: Request, db: Session = Depends(get_db)):
         func.count(IIQAsset.serial_number).desc()
     ).all()
 
-    locations = [{"name": abbreviate_location(loc or "Unknown"), "fullName": loc or "Unknown", "count": count} for loc, count in location_counts]
+    locations = [{"name": abbreviate_location(loc or "Unknown", db), "fullName": loc or "Unknown", "count": count} for loc, count in location_counts]
 
     # Model breakdown (top 10)
     model_counts = db.query(

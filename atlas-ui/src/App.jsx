@@ -23,7 +23,7 @@ function AppLayout() {
 
   // District Settings State
   const [districtSettings, setDistrictSettings] = useState({
-    name: 'Caesar Rodney School District',
+    name: 'Your School District',
     email: ''
   })
 
@@ -34,7 +34,7 @@ function AppLayout() {
         const response = await axios.get('/api/settings/public')
         if (response.data) {
           setDistrictSettings({
-            name: response.data.district_name || 'Caesar Rodney School District',
+            name: response.data.district_name || 'Your School District',
             email: response.data.support_email || ''
           })
         }
