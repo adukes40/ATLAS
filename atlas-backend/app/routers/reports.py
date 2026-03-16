@@ -13,7 +13,7 @@ from slowapi import Limiter
 from app.database import get_db
 from pydantic import BaseModel, field_validator
 from app.auth import require_auth
-from app.models import IIQAsset, IIQUser, GoogleDevice, GoogleUser, NetworkCache, MerakiDevice, MerakiNetwork, MerakiSSID, MerakiClient, CachedStats, SavedReport
+from app.models import IIQAsset, IIQUser, GoogleDevice, GoogleUser, NetworkCache, MerakiDevice, MerakiNetwork, MerakiSSID, MerakiClient, CachedStats, SavedReport, IIQTicket
 from app.config import get_iiq_config, get_google_config, get_meraki_config
 from app.utils import (
     get_user_identifier,
@@ -196,6 +196,72 @@ def get_google_stats(request: Request, db: Session = Depends(get_db)):
         GoogleDevice.aue_date.is_(None) | (GoogleDevice.aue_date == '')
     ).scalar() or 0
 
+    # Last successful sync time
+    last_google_sync = db.query(func.max(GoogleDevice.last_sync)).scalar()
+
+    # --- Fleet Health Metrics ---
+    from datetime import datetime, timedelta
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+
+    stale_count = db.query(func.count(GoogleDevice.serial_number)).filter(
+        GoogleDevice.status.ilike('%active%'),
+        GoogleDevice.last_sync < thirty_days_ago
+    ).scalar() or 0
+
+    low_battery_count = db.query(func.count(GoogleDevice.serial_number)).filter(
+        GoogleDevice.battery_health_percent.isnot(None),
+        GoogleDevice.battery_health_percent < 50
+    ).scalar() or 0
+
+    battery_reporting = db.query(func.count(GoogleDevice.serial_number)).filter(
+        GoogleDevice.battery_health_percent.isnot(None)
+    ).scalar() or 0
+
+    dev_mode_count = db.query(func.count(GoogleDevice.serial_number)).filter(
+        GoogleDevice.boot_mode.ilike('%dev%')
+    ).scalar() or 0
+
+    # OS compliance: % of active devices on most common OS major version
+    os_compliance_pct = 0.0
+    if active > 0:
+        top_os = db.execute(text("""
+            SELECT SPLIT_PART(os_version, '.', 1) as major, COUNT(*) as cnt
+            FROM google_devices
+            WHERE status ILIKE '%active%' AND os_version IS NOT NULL AND os_version != ''
+            GROUP BY major ORDER BY cnt DESC LIMIT 1
+        """)).fetchone()
+        if top_os:
+            os_compliance_pct = round((top_os[1] / active) * 100, 1)
+
+    # OS version distribution (top 8 for active devices)
+    os_versions_rows = db.execute(text("""
+        SELECT os_version, COUNT(*) as cnt
+        FROM google_devices
+        WHERE status ILIKE '%active%' AND os_version IS NOT NULL AND os_version != ''
+        GROUP BY os_version ORDER BY cnt DESC LIMIT 8
+    """)).fetchall()
+    os_versions = [{"version": row[0], "count": row[1]} for row in os_versions_rows]
+
+    # Battery health distribution (bucketed)
+    battery_dist_rows = db.execute(text("""
+        SELECT
+            CASE
+                WHEN battery_health_percent IS NULL THEN 'No Data'
+                WHEN battery_health_percent <= 25 THEN '0-25%'
+                WHEN battery_health_percent <= 50 THEN '26-50%'
+                WHEN battery_health_percent <= 75 THEN '51-75%'
+                ELSE '76-100%'
+            END as range,
+            COUNT(*) as cnt
+        FROM google_devices
+        GROUP BY range
+    """)).fetchall()
+    battery_bucket_order = ['0-25%', '26-50%', '51-75%', '76-100%', 'No Data']
+    battery_map = {row[0]: row[1] for row in battery_dist_rows}
+    battery_distribution = [
+        {"range": b, "count": battery_map.get(b, 0)} for b in battery_bucket_order
+    ]
+
     return {
         "total": total,
         "status": {
@@ -205,7 +271,17 @@ def get_google_stats(request: Request, db: Session = Depends(get_db)):
             "other": total - active - disabled - provisioned
         },
         "aue_by_year": aue_by_year,
-        "aue_unknown": unknown_aue
+        "aue_unknown": unknown_aue,
+        "health": {
+            "stale_count": stale_count,
+            "low_battery_count": low_battery_count,
+            "battery_reporting": battery_reporting,
+            "dev_mode_count": dev_mode_count,
+            "os_compliance_pct": os_compliance_pct
+        },
+        "os_versions": os_versions,
+        "battery_distribution": battery_distribution,
+        "last_sync": last_google_sync.isoformat() if last_google_sync else None
     }
 
 
@@ -303,6 +379,9 @@ def get_iiq_stats(request: Request, db: Session = Depends(get_db)):
 
     roles = [{"role": role or "Unassigned", "count": count} for role, count in role_counts]
 
+    # Last successful sync time
+    last_iiq_sync = db.query(func.max(IIQAsset.last_updated)).scalar()
+
     # Fee data by user (aggregated)
     fee_query = db.execute(text("""
         SELECT
@@ -339,6 +418,80 @@ def get_iiq_stats(request: Request, db: Session = Depends(get_db)):
             AND assigned_user_email IS NOT NULL
     """)).scalar() or 0
 
+    # --- NEW: Full status breakdown (all distinct statuses with counts) ---
+    status_breakdown_rows = db.query(
+        IIQAsset.status,
+        func.count(IIQAsset.serial_number).label('count')
+    ).filter(
+        IIQAsset.status.isnot(None)
+    ).group_by(
+        IIQAsset.status
+    ).order_by(
+        func.count(IIQAsset.serial_number).desc()
+    ).all()
+
+    status_breakdown = [{"status": s or "Unknown", "count": c} for s, c in status_breakdown_rows]
+
+    # --- NEW: Grade distribution ---
+    grade_rows = db.query(
+        IIQAsset.assigned_user_grade,
+        func.count(IIQAsset.serial_number).label('count')
+    ).filter(
+        IIQAsset.assigned_user_grade.isnot(None),
+        IIQAsset.assigned_user_grade != ''
+    ).group_by(
+        IIQAsset.assigned_user_grade
+    ).all()
+
+    # Sort grades: K first, then numeric 1-12, then alphabetical for non-standard
+    def grade_sort_key(item):
+        grade = item["grade"]
+        if grade.upper() == "K":
+            return (0, 0, "")
+        try:
+            return (1, int(grade), "")
+        except (ValueError, TypeError):
+            return (2, 0, grade)
+
+    by_grade = [{"grade": g, "count": c} for g, c in grade_rows]
+    by_grade.sort(key=grade_sort_key)
+
+    # --- NEW: Multi-device user count ---
+    multi_device_count = db.execute(text("""
+        SELECT COUNT(*) FROM (
+            SELECT assigned_user_email
+            FROM iiq_assets
+            WHERE assigned_user_email IS NOT NULL
+              AND assigned_user_email != ''
+            GROUP BY assigned_user_email
+            HAVING COUNT(*) > 1
+        ) sub
+    """)).scalar() or 0
+
+    # --- NEW: In-repair/broken count ---
+    in_repair_count = db.query(func.count(IIQAsset.serial_number)).filter(
+        or_(
+            IIQAsset.status.ilike('Broken'),
+            IIQAsset.status.ilike('In Repair'),
+            IIQAsset.status.ilike('Repair'),
+            IIQAsset.status.ilike('Damaged')
+        )
+    ).scalar() or 0
+
+    # --- NEW: Fees by location (top 10) ---
+    fees_by_location_rows = db.execute(text("""
+        SELECT location, SUM(CAST(COALESCE(fee_balance, '0') AS DECIMAL)) as total
+        FROM iiq_assets
+        WHERE fee_balance IS NOT NULL
+          AND CAST(fee_balance AS DECIMAL) > 0
+          AND location IS NOT NULL
+        GROUP BY location
+        ORDER BY total DESC
+        LIMIT 10
+    """)).fetchall()
+
+    fees_by_location = [{"location": row[0], "total": float(row[1])} for row in fees_by_location_rows]
+
     return {
         "total": total,
         "status": {
@@ -366,7 +519,13 @@ def get_iiq_stats(request: Request, db: Session = Depends(get_db)):
             "total_outstanding": float(total_fee_balance),
             "users_with_balance": users_with_balance,
             "top_users": users_with_fees
-        }
+        },
+        "status_breakdown": status_breakdown,
+        "by_grade": by_grade,
+        "multi_device_count": multi_device_count,
+        "in_repair_count": in_repair_count,
+        "fees_by_location": fees_by_location,
+        "last_sync": last_iiq_sync.isoformat() if last_iiq_sync else None
     }
 
 
@@ -1794,7 +1953,7 @@ MULTI_SOURCE_COLUMNS = {
     "iiq_assets": {
         "label": "IIQ Assets",
         "join_key": "serial_number",
-        "compatible_with": ["google_devices", "iiq_users"],
+        "compatible_with": ["google_devices", "iiq_users", "google_users", "meraki_clients", "network_cache", "iiq_tickets"],
         "columns": {
             "serial_number": {"label": "Serial Number", "type": "string"},
             "iiq_id": {"label": "IIQ ID", "type": "string"},
@@ -1821,7 +1980,7 @@ MULTI_SOURCE_COLUMNS = {
     "iiq_users": {
         "label": "IIQ Users",
         "join_key": "user_id",
-        "compatible_with": ["iiq_assets"],
+        "compatible_with": ["iiq_assets", "google_users"],
         "columns": {
             "user_id": {"label": "User ID", "type": "string"},
             "school_id_number": {"label": "School ID", "type": "string"},
@@ -1844,7 +2003,7 @@ MULTI_SOURCE_COLUMNS = {
     "google_devices": {
         "label": "Google Devices",
         "join_key": "serial_number",
-        "compatible_with": ["iiq_assets"],
+        "compatible_with": ["iiq_assets", "meraki_clients", "network_cache"],
         "columns": {
             "serial_number": {"label": "Serial Number", "type": "string"},
             "google_id": {"label": "Google ID", "type": "string"},
@@ -1875,7 +2034,7 @@ MULTI_SOURCE_COLUMNS = {
     "meraki_devices": {
         "label": "Meraki Devices",
         "join_key": "serial",
-        "compatible_with": ["meraki_networks"],
+        "compatible_with": ["meraki_networks", "meraki_clients"],
         "columns": {
             "serial": {"label": "Serial", "type": "string"},
             "name": {"label": "Name", "type": "string"},
@@ -1904,6 +2063,90 @@ MULTI_SOURCE_COLUMNS = {
             "last_updated": {"label": "Last Updated", "type": "datetime"},
         },
     },
+    "google_users": {
+        "label": "Google Users",
+        "join_key": "google_id",
+        "compatible_with": ["iiq_assets", "iiq_users"],
+        "columns": {
+            "google_id": {"label": "Google ID", "type": "string"},
+            "email": {"label": "Email", "type": "string"},
+            "full_name": {"label": "Full Name", "type": "string"},
+            "first_name": {"label": "First Name", "type": "string"},
+            "last_name": {"label": "Last Name", "type": "string"},
+            "sis_id": {"label": "SIS ID", "type": "string"},
+            "role": {"label": "Role", "type": "string"},
+            "school": {"label": "School", "type": "string"},
+            "org_unit_path": {"label": "OU Path", "type": "string"},
+            "is_suspended": {"label": "Suspended", "type": "boolean"},
+            "is_admin": {"label": "Admin", "type": "boolean"},
+            "last_login": {"label": "Last Login", "type": "datetime"},
+            "last_updated": {"label": "Last Updated", "type": "datetime"},
+        },
+    },
+    "meraki_clients": {
+        "label": "Meraki Clients",
+        "join_key": "mac",
+        "compatible_with": ["iiq_assets", "google_devices", "meraki_devices", "network_cache"],
+        "columns": {
+            "mac": {"label": "MAC Address", "type": "string"},
+            "description": {"label": "Description", "type": "string"},
+            "manufacturer": {"label": "Manufacturer", "type": "string"},
+            "os": {"label": "OS", "type": "string"},
+            "last_ssid": {"label": "Last SSID", "type": "string"},
+            "last_ap_name": {"label": "AP Name", "type": "string"},
+            "last_ap_serial": {"label": "AP Serial", "type": "string"},
+            "last_seen": {"label": "Last Seen", "type": "datetime"},
+            "usage_sent": {"label": "Bytes Sent", "type": "number"},
+            "usage_recv": {"label": "Bytes Received", "type": "number"},
+            "psk_group": {"label": "PSK Group", "type": "string"},
+            "rssi": {"label": "RSSI", "type": "number"},
+            "status": {"label": "Status", "type": "string"},
+            "last_updated": {"label": "Last Updated", "type": "datetime"},
+        },
+    },
+    "network_cache": {
+        "label": "Network Cache",
+        "join_key": "mac_address",
+        "compatible_with": ["iiq_assets", "google_devices", "meraki_clients"],
+        "columns": {
+            "mac_address": {"label": "MAC Address", "type": "string"},
+            "ip_address": {"label": "IP Address", "type": "string"},
+            "last_ap_name": {"label": "AP Name", "type": "string"},
+            "last_ap_mac": {"label": "AP MAC", "type": "string"},
+            "ssid": {"label": "SSID", "type": "string"},
+            "vlan": {"label": "VLAN", "type": "number"},
+            "last_seen": {"label": "Last Seen", "type": "datetime"},
+        },
+    },
+    "iiq_tickets": {
+        "label": "IIQ Tickets",
+        "join_key": "ticket_id",
+        "compatible_with": ["iiq_assets"],
+        "columns": {
+            "ticket_number": {"label": "Ticket #", "type": "number"},
+            "subject": {"label": "Subject", "type": "string"},
+            "status": {"label": "Status", "type": "string"},
+            "is_closed": {"label": "Closed?", "type": "boolean"},
+            "priority": {"label": "Priority", "type": "string"},
+            "is_urgent": {"label": "Urgent?", "type": "boolean"},
+            "issue_category": {"label": "Category", "type": "string"},
+            "category": {"label": "Issue Type", "type": "string"},
+            "source": {"label": "Source", "type": "string"},
+            "created_date": {"label": "Created Date", "type": "datetime"},
+            "closed_date": {"label": "Closed Date", "type": "datetime"},
+            "close_reason": {"label": "Close Reason", "type": "string"},
+            "owner_name": {"label": "Requester", "type": "string"},
+            "owner_email": {"label": "Requester Email", "type": "string"},
+            "for_name": {"label": "Submitted For", "type": "string"},
+            "for_email": {"label": "Submitted For Email", "type": "string"},
+            "for_location": {"label": "Requester Building", "type": "string"},
+            "for_role": {"label": "Requester Role", "type": "string"},
+            "assignee_name": {"label": "Agent", "type": "string"},
+            "assignee_email": {"label": "Agent Email", "type": "string"},
+            "team_name": {"label": "Team", "type": "string"},
+            "location_name": {"label": "Ticket Location", "type": "string"},
+        },
+    },
 }
 
 # Source name to SQLAlchemy model mapping
@@ -1913,6 +2156,10 @@ SOURCE_MODELS = {
     "google_devices": GoogleDevice,
     "meraki_devices": MerakiDevice,
     "meraki_networks": MerakiNetwork,
+    "google_users": GoogleUser,
+    "meraki_clients": MerakiClient,
+    "network_cache": NetworkCache,
+    "iiq_tickets": IIQTicket,
 }
 
 # Join paths between compatible sources
@@ -1935,6 +2182,60 @@ JOIN_PATHS = {
         "left_key": "network_id",
         "right_key": "network_id",
     },
+    frozenset(["iiq_assets", "google_users"]): {
+        "left": "iiq_assets",
+        "right": "google_users",
+        "left_key": "assigned_user_email",
+        "right_key": "email",
+    },
+    frozenset(["iiq_assets", "meraki_clients"]): {
+        "left": "iiq_assets",
+        "right": "meraki_clients",
+        "left_key": "mac_address",
+        "right_key": "mac",
+    },
+    frozenset(["iiq_assets", "network_cache"]): {
+        "left": "iiq_assets",
+        "right": "network_cache",
+        "left_key": "mac_address",
+        "right_key": "mac_address",
+    },
+    frozenset(["iiq_assets", "iiq_tickets"]): {
+        "left": "iiq_assets",
+        "right": "iiq_tickets",
+        "left_key": "iiq_id",
+        "right_key": "asset_id",
+    },
+    frozenset(["iiq_users", "google_users"]): {
+        "left": "iiq_users",
+        "right": "google_users",
+        "left_key": "email",
+        "right_key": "email",
+    },
+    frozenset(["google_devices", "meraki_clients"]): {
+        "left": "google_devices",
+        "right": "meraki_clients",
+        "left_key": "mac_address",
+        "right_key": "mac",
+    },
+    frozenset(["google_devices", "network_cache"]): {
+        "left": "google_devices",
+        "right": "network_cache",
+        "left_key": "mac_address",
+        "right_key": "mac_address",
+    },
+    frozenset(["meraki_clients", "meraki_devices"]): {
+        "left": "meraki_clients",
+        "right": "meraki_devices",
+        "left_key": "last_ap_serial",
+        "right_key": "serial",
+    },
+    frozenset(["meraki_clients", "network_cache"]): {
+        "left": "meraki_clients",
+        "right": "network_cache",
+        "left_key": "mac",
+        "right_key": "mac_address",
+    },
 }
 
 
@@ -1950,6 +2251,8 @@ class MultiSourceFilter(BaseModel):
     field: str
     values: List[str] = []
     exclude: bool = False
+    date_from: Optional[str] = None   # ISO date string for range filtering (>=)
+    date_to: Optional[str] = None     # ISO date string for range filtering (<=)
 
 
 class MultiSourceSort(BaseModel):
@@ -1981,6 +2284,28 @@ class MultiSourceQueryRequest(BaseModel):
         if v > 250:
             return 250
         return v
+
+
+class ReportExecuteRequest(BaseModel):
+    """Unified report execution request - handles both standard and specialized queries."""
+    query_type: Literal["standard", "specialized"] = "standard"
+    specialized_key: Optional[str] = None
+    columns: List[MultiSourceColumn] = []
+    filters: List[MultiSourceFilter] = []
+    sort: List[MultiSourceSort] = []
+    page: int = 1
+    limit: int = 25
+    search: str = ""
+
+    @field_validator("page")
+    @classmethod
+    def validate_page(cls, v: int) -> int:
+        return max(1, v)
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit(cls, v: int) -> int:
+        return max(1, min(250, v))
 
 
 # --- Helper: build multi-source query ---
@@ -2097,6 +2422,31 @@ def _build_custom_query(db: Session, columns: List[MultiSourceColumn], filters: 
             raise HTTPException(status_code=400, detail=f"Unknown filter field '{f.field}' in source '{f.source}'")
         model = SOURCE_MODELS[f.source]
         col_attr = getattr(model, f.field)
+
+        # Date range filtering
+        if f.date_from or f.date_to:
+            col_type = source_cfg["columns"][f.field].get("type", "string")
+            if col_type == "datetime":
+                if f.date_from:
+                    try:
+                        dt_from = datetime.fromisoformat(f.date_from)
+                        query = query.filter(col_attr >= dt_from)
+                    except ValueError:
+                        pass
+                if f.date_to:
+                    try:
+                        dt_to = datetime.fromisoformat(f.date_to).replace(hour=23, minute=59, second=59)
+                        query = query.filter(col_attr <= dt_to)
+                    except ValueError:
+                        pass
+            elif col_type == "string":
+                # For string-based dates like aue_date (YYYY-MM-DD)
+                if f.date_from:
+                    query = query.filter(col_attr >= f.date_from)
+                if f.date_to:
+                    query = query.filter(col_attr <= f.date_to)
+
+        # Discrete value filtering
         if f.values:
             if f.exclude:
                 query = query.filter(~col_attr.in_(f.values))
@@ -2132,6 +2482,457 @@ def _build_custom_query(db: Session, columns: List[MultiSourceColumn], filters: 
     return query, select_labels, all_sources
 
 
+# --- Endpoint: POST dynamic filter options ---
+
+class FilterOptionsRequest(BaseModel):
+    source: str
+    field: str
+
+@router.post("/custom/filter-options")
+@limiter.limit("30/minute")
+def get_dynamic_filter_options(
+    request: Request,
+    body: FilterOptionsRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """Return distinct values for a column. Used by dynamic filter dropdowns."""
+    if body.source not in MULTI_SOURCE_COLUMNS:
+        raise HTTPException(status_code=400, detail=f"Unknown source: {body.source}")
+    source_cfg = MULTI_SOURCE_COLUMNS[body.source]
+    if body.field not in source_cfg["columns"]:
+        raise HTTPException(status_code=400, detail=f"Unknown field '{body.field}' in source '{body.source}'")
+    model = SOURCE_MODELS[body.source]
+    col_attr = getattr(model, body.field)
+    results = (
+        db.query(col_attr)
+        .filter(col_attr.isnot(None), col_attr != "")
+        .distinct()
+        .order_by(col_attr)
+        .limit(500)
+        .all()
+    )
+    options = []
+    for row in results:
+        val = row[0]
+        if isinstance(val, datetime):
+            val = val.isoformat()
+        elif isinstance(val, bool):
+            val = str(val)
+        else:
+            val = str(val)
+        options.append(val)
+    return {"options": options}
+
+
+# =============================================================================
+# SPECIALIZED QUERY HANDLERS
+# =============================================================================
+
+def _specialized_no_chromebook(db: Session, columns: List[MultiSourceColumn], filters: List[MultiSourceFilter], sort_rules: List[MultiSourceSort], search: str):
+    """Students without Chromebook - IIQ Users with role=Student, is_active=True, NOT IN assigned devices."""
+    # Build select columns from the provided columns list
+    select_labels = []
+    select_cols = []
+    for col in columns:
+        source_key = col.source
+        if source_key not in MULTI_SOURCE_COLUMNS:
+            continue
+        source_cfg = MULTI_SOURCE_COLUMNS[source_key]
+        if col.field not in source_cfg["columns"]:
+            continue
+        model = SOURCE_MODELS[source_key]
+        label = f"{source_key}__{col.field}"
+        select_labels.append(label)
+        select_cols.append(getattr(model, col.field).label(label))
+
+    if not select_cols:
+        select_cols = [
+            IIQUser.full_name.label("iiq_users__full_name"),
+            IIQUser.email.label("iiq_users__email"),
+            IIQUser.school_id_number.label("iiq_users__school_id_number"),
+            IIQUser.grade.label("iiq_users__grade"),
+            IIQUser.location_name.label("iiq_users__location_name"),
+            IIQUser.homeroom.label("iiq_users__homeroom"),
+        ]
+        select_labels = ["iiq_users__full_name", "iiq_users__email", "iiq_users__school_id_number", "iiq_users__grade", "iiq_users__location_name", "iiq_users__homeroom"]
+
+    # Subquery: users who own at least one asset
+    owners_subq = db.query(IIQAsset.owner_iiq_id).filter(
+        IIQAsset.owner_iiq_id.isnot(None)
+    ).distinct().subquery()
+
+    query = db.query(*select_cols).select_from(IIQUser).filter(
+        IIQUser.role_name == "Student",
+        IIQUser.is_active == True,
+        ~IIQUser.user_id.in_(db.query(owners_subq.c.owner_iiq_id))
+    )
+
+    # Apply filters
+    for f in filters:
+        if f.source not in MULTI_SOURCE_COLUMNS:
+            continue
+        source_cfg = MULTI_SOURCE_COLUMNS[f.source]
+        if f.field not in source_cfg["columns"]:
+            continue
+        model = SOURCE_MODELS.get(f.source)
+        if not model:
+            continue
+        col_attr = getattr(model, f.field)
+        if f.values:
+            if f.exclude:
+                query = query.filter(~col_attr.in_(f.values))
+            else:
+                query = query.filter(col_attr.in_(f.values))
+
+    # Apply search
+    if search:
+        search_term = f"%{search}%"
+        search_filters = []
+        for col in columns:
+            col_cfg = MULTI_SOURCE_COLUMNS.get(col.source, {}).get("columns", {}).get(col.field, {})
+            if col_cfg.get("type") == "string":
+                model = SOURCE_MODELS.get(col.source)
+                if model:
+                    search_filters.append(getattr(model, col.field).ilike(search_term))
+        if search_filters:
+            query = query.filter(or_(*search_filters))
+
+    # Apply sorting
+    for s in sort_rules:
+        model = SOURCE_MODELS.get(s.source)
+        if not model:
+            continue
+        source_cfg = MULTI_SOURCE_COLUMNS.get(s.source, {})
+        if s.field not in source_cfg.get("columns", {}):
+            continue
+        sort_col = getattr(model, s.field)
+        if s.direction.lower() == "desc":
+            query = query.order_by(desc(sort_col))
+        else:
+            query = query.order_by(asc(sort_col))
+
+    return query, select_labels, {"iiq_users"}
+
+
+def _specialized_multiple_devices(db: Session, columns: List[MultiSourceColumn], filters: List[MultiSourceFilter], sort_rules: List[MultiSourceSort], search: str):
+    """Users with multiple devices - GROUP BY owner, HAVING count >= 2."""
+    select_labels = []
+    select_cols = []
+
+    # Always need these core columns for the grouping logic
+    core_cols = [
+        IIQUser.full_name.label("iiq_users__full_name"),
+        IIQUser.email.label("iiq_users__email"),
+        IIQUser.grade.label("iiq_users__grade"),
+        IIQUser.location_name.label("iiq_users__location_name"),
+        func.count(IIQAsset.serial_number).label("iiq_assets__device_count"),
+        func.string_agg(IIQAsset.serial_number, literal_column("', '")).label("iiq_assets__serial_numbers"),
+    ]
+    select_labels = [
+        "iiq_users__full_name", "iiq_users__email", "iiq_users__grade",
+        "iiq_users__location_name", "iiq_assets__device_count", "iiq_assets__serial_numbers"
+    ]
+
+    query = db.query(*core_cols).select_from(IIQAsset).join(
+        IIQUser, IIQAsset.owner_iiq_id == IIQUser.user_id
+    ).group_by(
+        IIQUser.full_name, IIQUser.email, IIQUser.grade, IIQUser.location_name
+    ).having(func.count(IIQAsset.serial_number) >= 2)
+
+    # Apply filters on IIQUser columns
+    for f in filters:
+        model = SOURCE_MODELS.get(f.source)
+        if not model or model != IIQUser:
+            continue
+        source_cfg = MULTI_SOURCE_COLUMNS.get(f.source, {})
+        if f.field not in source_cfg.get("columns", {}):
+            continue
+        col_attr = getattr(model, f.field)
+        if f.values:
+            if f.exclude:
+                query = query.filter(~col_attr.in_(f.values))
+            else:
+                query = query.filter(col_attr.in_(f.values))
+
+    # Search
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(or_(
+            IIQUser.full_name.ilike(search_term),
+            IIQUser.email.ilike(search_term),
+        ))
+
+    # Sorting - default to device_count desc
+    has_sort = False
+    for s in sort_rules:
+        if s.source == "iiq_assets" and s.field == "device_count":
+            if s.direction.lower() == "desc":
+                query = query.order_by(desc(func.count(IIQAsset.serial_number)))
+            else:
+                query = query.order_by(asc(func.count(IIQAsset.serial_number)))
+            has_sort = True
+        elif s.source == "iiq_users":
+            model = SOURCE_MODELS.get(s.source)
+            if model:
+                source_cfg = MULTI_SOURCE_COLUMNS.get(s.source, {})
+                if s.field in source_cfg.get("columns", {}):
+                    sort_col = getattr(model, s.field)
+                    if s.direction.lower() == "desc":
+                        query = query.order_by(desc(sort_col))
+                    else:
+                        query = query.order_by(asc(sort_col))
+                    has_sort = True
+    if not has_sort:
+        query = query.order_by(desc(func.count(IIQAsset.serial_number)))
+
+    return query, select_labels, {"iiq_users", "iiq_assets"}
+
+
+def _specialized_fee_balances(db: Session, columns: List[MultiSourceColumn], filters: List[MultiSourceFilter], sort_rules: List[MultiSourceSort], search: str):
+    """IIQ Users with fee_balance > 0."""
+    select_labels = []
+    select_cols = []
+    for col in columns:
+        source_key = col.source
+        if source_key not in MULTI_SOURCE_COLUMNS:
+            continue
+        source_cfg = MULTI_SOURCE_COLUMNS[source_key]
+        if col.field not in source_cfg["columns"]:
+            continue
+        model = SOURCE_MODELS[source_key]
+        label = f"{source_key}__{col.field}"
+        select_labels.append(label)
+        select_cols.append(getattr(model, col.field).label(label))
+
+    if not select_cols:
+        select_cols = [
+            IIQUser.full_name.label("iiq_users__full_name"),
+            IIQUser.school_id_number.label("iiq_users__school_id_number"),
+            IIQUser.email.label("iiq_users__email"),
+            IIQUser.grade.label("iiq_users__grade"),
+            IIQUser.location_name.label("iiq_users__location_name"),
+            IIQUser.fee_balance.label("iiq_users__fee_balance"),
+            IIQUser.fee_past_due.label("iiq_users__fee_past_due"),
+        ]
+        select_labels = ["iiq_users__full_name", "iiq_users__school_id_number", "iiq_users__email", "iiq_users__grade", "iiq_users__location_name", "iiq_users__fee_balance", "iiq_users__fee_past_due"]
+
+    query = db.query(*select_cols).select_from(IIQUser).filter(
+        IIQUser.fee_balance.isnot(None),
+        IIQUser.fee_balance != "",
+        IIQUser.fee_balance != "0",
+        IIQUser.fee_balance != "0.0",
+        IIQUser.fee_balance != "0.00",
+        cast(IIQUser.fee_balance, Float) > 0
+    )
+
+    # Apply filters
+    for f in filters:
+        if f.source not in MULTI_SOURCE_COLUMNS:
+            continue
+        model = SOURCE_MODELS.get(f.source)
+        if not model:
+            continue
+        source_cfg = MULTI_SOURCE_COLUMNS[f.source]
+        if f.field not in source_cfg["columns"]:
+            continue
+        col_attr = getattr(model, f.field)
+        if f.values:
+            if f.exclude:
+                query = query.filter(~col_attr.in_(f.values))
+            else:
+                query = query.filter(col_attr.in_(f.values))
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(or_(
+            IIQUser.full_name.ilike(search_term),
+            IIQUser.email.ilike(search_term),
+            IIQUser.school_id_number.ilike(search_term),
+        ))
+
+    # Sort - default to fee_balance desc
+    has_sort = False
+    for s in sort_rules:
+        model = SOURCE_MODELS.get(s.source)
+        if not model:
+            continue
+        source_cfg = MULTI_SOURCE_COLUMNS.get(s.source, {})
+        if s.field not in source_cfg.get("columns", {}):
+            continue
+        sort_col = getattr(model, s.field)
+        if s.field == "fee_balance":
+            sort_col = cast(IIQUser.fee_balance, Float)
+        if s.direction.lower() == "desc":
+            query = query.order_by(desc(sort_col))
+        else:
+            query = query.order_by(asc(sort_col))
+        has_sort = True
+    if not has_sort:
+        query = query.order_by(desc(cast(IIQUser.fee_balance, Float)))
+
+    return query, select_labels, {"iiq_users"}
+
+
+SPECIALIZED_QUERIES = {
+    "no_chromebook": _specialized_no_chromebook,
+    "multiple_devices": _specialized_multiple_devices,
+    "fee_balances": _specialized_fee_balances,
+}
+
+
+# =============================================================================
+# UNIFIED REPORT EXECUTE ENDPOINT
+# =============================================================================
+
+@router.post("/execute")
+@limiter.limit("20/minute")
+def execute_report(
+    request: Request,
+    body: ReportExecuteRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """
+    Unified report execution endpoint.
+    Handles both standard multi-source queries and specialized report logic.
+    """
+    if body.query_type == "specialized" and body.specialized_key:
+        handler = SPECIALIZED_QUERIES.get(body.specialized_key)
+        if not handler:
+            raise HTTPException(status_code=400, detail=f"Unknown specialized query: {body.specialized_key}")
+        query, select_labels, all_sources = handler(
+            db, body.columns, body.filters, body.sort, body.search
+        )
+    else:
+        if not body.columns:
+            raise HTTPException(status_code=400, detail="No columns selected")
+        query, select_labels, all_sources = _build_custom_query(
+            db, body.columns, body.filters, body.sort, body.search
+        )
+
+    # Pagination
+    total = query.count()
+    page = body.page
+    limit = body.limit
+    pages = math.ceil(total / limit) if limit else 1
+    offset = (page - 1) * limit
+
+    results = query.offset(offset).limit(limit).all()
+
+    # Format response rows
+    data = []
+    for row in results:
+        row_dict = {}
+        for i, label in enumerate(select_labels):
+            val = row[i] if i < len(row) else None
+            if isinstance(val, datetime):
+                val = val.isoformat()
+            elif isinstance(val, bool):
+                val = val
+            row_dict[label] = val
+        data.append(row_dict)
+
+    # Inject _has_google / _has_iiq flags for ActionPanel filtering
+    serial_keys = [l for l in select_labels if 'serial_number' in l or l == 'serial']
+    if serial_keys and data:
+        all_serials = set()
+        for row in data:
+            for sk in serial_keys:
+                v = row.get(sk)
+                if v:
+                    all_serials.add(v)
+        if all_serials:
+            serial_list = list(all_serials)
+            google_serials = set(
+                r[0] for r in db.query(GoogleDevice.serial_number)
+                .filter(GoogleDevice.serial_number.in_(serial_list))
+                .all()
+            )
+            iiq_serials = set(
+                r[0] for r in db.query(IIQAsset.serial_number)
+                .filter(IIQAsset.serial_number.in_(serial_list))
+                .all()
+            )
+            for row in data:
+                row_serial = None
+                for sk in serial_keys:
+                    v = row.get(sk)
+                    if v:
+                        row_serial = v
+                        break
+                row['_has_google'] = row_serial in google_serials if row_serial else False
+                row['_has_iiq'] = row_serial in iiq_serials if row_serial else False
+
+    return {
+        "data": data,
+        "columns": select_labels,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "pages": pages,
+    }
+
+
+@router.post("/execute/export/csv")
+@limiter.limit("10/minute")
+def execute_report_csv(
+    request: Request,
+    body: ReportExecuteRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """Export unified report results as CSV."""
+    if body.query_type == "specialized" and body.specialized_key:
+        handler = SPECIALIZED_QUERIES.get(body.specialized_key)
+        if not handler:
+            raise HTTPException(status_code=400, detail=f"Unknown specialized query: {body.specialized_key}")
+        query, select_labels, all_sources = handler(
+            db, body.columns, body.filters, body.sort, body.search
+        )
+    else:
+        if not body.columns:
+            raise HTTPException(status_code=400, detail="No columns selected")
+        query, select_labels, all_sources = _build_custom_query(
+            db, body.columns, body.filters, body.sort, body.search
+        )
+
+    MAX_EXPORT_ROWS = 50000
+    results = query.limit(MAX_EXPORT_ROWS).all()
+
+    csv_headers = []
+    for label in select_labels:
+        parts = label.split("__", 1)
+        if len(parts) == 2:
+            source, field = parts
+            source_cfg = MULTI_SOURCE_COLUMNS.get(source, {})
+            field_label = source_cfg.get("columns", {}).get(field, {}).get("label", field)
+            csv_headers.append(f"{source_cfg.get('label', source)} > {field_label}")
+        else:
+            csv_headers.append(label)
+
+    data = []
+    for row in results:
+        row_dict = {}
+        for i, label in enumerate(select_labels):
+            parts = label.split("__", 1)
+            if len(parts) == 2:
+                source, field = parts
+                source_cfg = MULTI_SOURCE_COLUMNS.get(source, {})
+                field_label = source_cfg.get("columns", {}).get(field, {}).get("label", field)
+                header = f"{source_cfg.get('label', source)} > {field_label}"
+            else:
+                header = label
+            val = row[i] if i < len(row) else None
+            if isinstance(val, datetime):
+                val = val.strftime("%Y-%m-%d %H:%M:%S")
+            row_dict[header] = val
+        data.append(row_dict)
+
+    sources_str = "_".join(sorted(all_sources))
+    return stream_csv(data, csv_headers, f"report_{sources_str}_{datetime.now().strftime('%Y%m%d')}.csv")
+
+
 # --- Endpoint: GET all columns from all sources ---
 
 @router.get("/custom/columns")
@@ -2155,7 +2956,7 @@ def get_all_custom_columns(request: Request, user: dict = Depends(require_auth))
 # --- Endpoint: POST multi-source query ---
 
 @router.post("/custom/query")
-@limiter.limit("10/minute")
+@limiter.limit("30/minute")
 def run_multi_source_query(
     request: Request,
     body: MultiSourceQueryRequest,
@@ -2203,7 +3004,7 @@ def run_multi_source_query(
 # --- Endpoint: POST multi-source query CSV export ---
 
 @router.post("/custom/query/export/csv")
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 def export_multi_source_csv(
     request: Request,
     body: MultiSourceQueryRequest,
@@ -2489,10 +3290,10 @@ def list_saved_reports(
     db: Session = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
-    """List all saved reports without config (ordered by folder then name)."""
+    """List all saved reports without config (ordered by system first, then folder, then name)."""
     reports = (
         db.query(SavedReport)
-        .order_by(SavedReport.folder, SavedReport.name)
+        .order_by(desc(SavedReport.is_system), SavedReport.folder, SavedReport.name)
         .all()
     )
     return [
@@ -2500,12 +3301,40 @@ def list_saved_reports(
             "id": r.id,
             "name": r.name,
             "folder": r.folder,
+            "is_system": getattr(r, 'is_system', False),
+            "system_slug": getattr(r, 'system_slug', None),
             "created_by": r.created_by,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
         }
         for r in reports
     ]
+
+
+@router.get("/saved/by-slug/{slug}")
+@limiter.limit("20/minute")
+def get_saved_report_by_slug(
+    request: Request,
+    slug: str,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """Get a system report by its slug."""
+    report = db.query(SavedReport).filter(SavedReport.system_slug == slug).first()
+    if not report:
+        raise HTTPException(status_code=404, detail=f"System report '{slug}' not found")
+    return {
+        "id": report.id,
+        "name": report.name,
+        "folder": report.folder,
+        "config": report.config,
+        "is_system": getattr(report, 'is_system', False),
+        "system_slug": getattr(report, 'system_slug', None),
+        "default_config": getattr(report, 'default_config', None),
+        "created_by": report.created_by,
+        "created_at": report.created_at.isoformat() if report.created_at else None,
+        "updated_at": report.updated_at.isoformat() if report.updated_at else None,
+    }
 
 
 @router.get("/saved/{report_id}")
@@ -2525,9 +3354,45 @@ def get_saved_report(
         "name": report.name,
         "folder": report.folder,
         "config": report.config,
+        "is_system": getattr(report, 'is_system', False),
+        "system_slug": getattr(report, 'system_slug', None),
+        "default_config": getattr(report, 'default_config', None),
         "created_by": report.created_by,
         "created_at": report.created_at.isoformat() if report.created_at else None,
         "updated_at": report.updated_at.isoformat() if report.updated_at else None,
+    }
+
+
+@router.post("/saved/{report_id}/reset")
+@limiter.limit("10/minute")
+def reset_saved_report(
+    request: Request,
+    report_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """Reset a system report to its default configuration."""
+    report = db.query(SavedReport).filter(SavedReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Saved report not found")
+    if not getattr(report, 'is_system', False):
+        raise HTTPException(status_code=400, detail="Only system reports can be reset")
+    default = getattr(report, 'default_config', None)
+    if not default:
+        raise HTTPException(status_code=400, detail="No default config available")
+    report.config = default
+    try:
+        db.commit()
+        db.refresh(report)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    return {
+        "id": report.id,
+        "name": report.name,
+        "config": report.config,
+        "is_system": True,
+        "system_slug": getattr(report, 'system_slug', None),
     }
 
 
@@ -2577,12 +3442,19 @@ def update_saved_report(
         raise HTTPException(status_code=404, detail="Saved report not found")
     if report.created_by != user.get("email") and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Not authorized to update this report")
-    if body.name is not None:
-        report.name = body.name
-    if body.folder is not None:
-        report.folder = body.folder.strip() if body.folder else None
-    if body.config is not None:
-        report.config = body.config
+    if getattr(report, 'is_system', False):
+        # System templates: only config can be updated
+        if body.name is not None or body.folder is not None:
+            raise HTTPException(status_code=403, detail="Cannot rename system reports")
+        if body.config is not None:
+            report.config = body.config
+    else:
+        if body.name is not None:
+            report.name = body.name
+        if body.folder is not None:
+            report.folder = body.folder.strip() if body.folder else None
+        if body.config is not None:
+            report.config = body.config
     try:
         db.commit()
         db.refresh(report)
@@ -2612,6 +3484,8 @@ def delete_saved_report(
     report = db.query(SavedReport).filter(SavedReport.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Saved report not found")
+    if getattr(report, 'is_system', False):
+        raise HTTPException(status_code=403, detail="Cannot delete system reports")
     if report.created_by != user.get("email") and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Not authorized to delete this report")
     report_id_val = report.id

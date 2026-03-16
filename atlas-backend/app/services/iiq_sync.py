@@ -360,56 +360,101 @@ class IIQConnector:
         """
         Fetch ticket statistics from IIQ API and cache them in the database.
         Called during nightly sync to avoid live API calls on dashboard load.
+
+        NOTE: IIQ's tickets POST endpoint ignores JSON body Paging and Filters.
+        Pagination must use query params ($p, $s) on the URL. Open/closed status
+        must be determined by checking IsClosed on each ticket.
         """
         from app.models import CachedStats
+        from collections import Counter
         import json
 
         logger.info("Caching IIQ ticket statistics...")
 
         try:
-            # Get total ticket count
-            resp = requests.post(
-                f"{self.base_url}/api/v1.0/tickets",
-                headers=self.headers,
-                json={"OnlyShowDeleted": False, "Paging": {"PageIndex": 0, "PageSize": 1}},
-                timeout=30
-            )
-            total_all_time = resp.json().get("Paging", {}).get("TotalRows", 0)
+            # Determine school year start (July 1 of current or previous year)
+            now = datetime.utcnow()
+            sy_start_year = now.year if now.month >= 7 else now.year - 1
+            school_year_start = f"{sy_start_year}-07-01"
+            school_year_label = f"{sy_start_year}-{sy_start_year + 1}"
 
-            # Get open ticket count
-            resp = requests.post(
-                f"{self.base_url}/api/v1.0/tickets",
-                headers=self.headers,
-                json={
-                    "OnlyShowDeleted": False,
-                    "Filters": [{"Facet": "Status", "Values": ["Open"]}],
-                    "Paging": {"PageIndex": 0, "PageSize": 1}
-                },
-                timeout=30
-            )
-            open_tickets = resp.json().get("Paging", {}).get("TotalRows", 0)
-
-            # Sample first 500 tickets to count school year tickets
+            # Paginate through ALL tickets using query params ($p, $s)
+            page = 0
+            page_size = 100
+            total_all_time = 0
+            open_count = 0
             school_year_count = 0
-            school_year_start = "2025-07-01"
-            for page in range(25):
+            by_category = Counter()
+            by_location = Counter()
+            by_month = Counter()
+
+            while True:
                 resp = requests.post(
-                    f"{self.base_url}/api/v1.0/tickets",
+                    f"{self.base_url}/api/v1.0/tickets?$p={page}&$s={page_size}",
                     headers=self.headers,
-                    json={"OnlyShowDeleted": False, "Paging": {"PageIndex": page, "PageSize": 20}},
+                    json={"OnlyShowDeleted": False},
                     timeout=30
                 )
-                items = resp.json().get("Items", [])
+                data = resp.json()
+                items = data.get("Items", [])
+
+                if page == 0:
+                    total_all_time = data.get("Paging", {}).get("TotalRows", 0)
+                    logger.info(f"Total tickets to scan: {total_all_time}")
+
+                if not items:
+                    break
+
                 for item in items:
-                    if item.get("CreatedDate", "") >= school_year_start:
+                    created = item.get("CreatedDate", "")
+
+                    # Count open tickets (IsClosed=False)
+                    if not item.get("IsClosed", True):
+                        open_count += 1
+
+                    # Count school year tickets
+                    if created >= school_year_start:
                         school_year_count += 1
 
-            # Save to cache
+                        # Category from Subject (first segment before >)
+                        subject = item.get("Subject", "")
+                        category = subject.split(">")[0].strip() if ">" in subject else "Other"
+                        if category:
+                            by_category[category] += 1
+
+                        # Location breakdown (school year only)
+                        loc = item.get("Location", {})
+                        loc_name = loc.get("Name", "Unknown") if loc else "Unknown"
+                        by_location[loc_name] += 1
+
+                        # Monthly trend (school year only)
+                        month_key = created[:7]  # YYYY-MM
+                        by_month[month_key] += 1
+
+                page += 1
+                if page % 100 == 0:
+                    logger.info(f"  ...scanned {page * page_size} tickets")
+
+            logger.info(f"Ticket scan complete: {open_count} open, {school_year_count} school year")
+
+            # Build stats
             stats = {
                 "total_all_time": total_all_time,
-                "open_tickets": open_tickets,
+                "open_tickets": open_count,
                 "school_year_tickets": school_year_count,
-                "school_year": "2025-2026"
+                "school_year": school_year_label,
+                "by_category": [
+                    {"category": cat, "count": count}
+                    for cat, count in by_category.most_common(15)
+                ],
+                "by_location": [
+                    {"location": loc, "count": count}
+                    for loc, count in by_location.most_common(15)
+                ],
+                "by_month": [
+                    {"month": month, "count": count}
+                    for month, count in sorted(by_month.items())
+                ],
             }
 
             cache_entry = CachedStats(
@@ -420,7 +465,7 @@ class IIQConnector:
             db.merge(cache_entry)
             db.commit()
 
-            logger.info(f"Cached ticket stats: {stats}")
+            logger.info(f"Cached ticket stats: open={open_count}, school_year={school_year_count}, total={total_all_time}")
             return stats
 
         except Exception as e:
@@ -738,13 +783,7 @@ class IIQConnector:
                 resp = requests.post(
                     f"{self.base_url}/api/v1.0/tickets?$p={page_index}&$s=100",
                     headers=self.headers,
-                    json={
-                        "OnlyShowDeleted": False,
-                        "Filters": [{
-                            "Facet": "CreatedDate",
-                            "Min": cutoff_date
-                        }]
-                    },
+                    json={"OnlyShowDeleted": False},
                     timeout=30
                 )
                 resp.raise_for_status()
@@ -772,37 +811,58 @@ class IIQConnector:
                         if created_date and created_date < "2025-01-01":
                             continue
 
-                        # Extract nested objects (some may not exist or be different types)
+                        # Extract nested objects
                         owner = raw_data.get("Owner") or {}
-                        assignee = raw_data.get("AssignedToUser") or {}  # Not "Assignee"
+                        for_user = raw_data.get("For") or {}
+                        assignee = raw_data.get("AssignedToUser") or {}
+                        team = raw_data.get("AssignedToTeam") or {}
                         location = raw_data.get("Location") or {}
-                        workflow_step = raw_data.get("WorkflowStep") or {}  # Status is WorkflowStep
-                        issue = raw_data.get("Issue") or {}  # Category is Issue
+                        workflow_step = raw_data.get("WorkflowStep") or {}
+                        issue = raw_data.get("Issue") or {}
+                        close_reason = raw_data.get("CloseReason") or {}
 
-                        # Priority is an int, not a dict
+                        # Map priority int to label
                         priority_val = raw_data.get("Priority")
-                        priority_str = str(priority_val) if priority_val is not None else None
+                        priority_map = {1: "Urgent", 51: "High", 100: "Normal"}
+                        priority_str = priority_map.get(priority_val, f"P{priority_val}" if priority_val is not None else None)
+
+                        # Map source ID to label
+                        source_val = raw_data.get("SourceId")
+                        source_map = {1: "Portal", 2: "Email", 3: "Walk-in"}
+                        source_str = source_map.get(source_val, f"Source {source_val}" if source_val is not None else None)
+
+                        # For user role
+                        for_role_obj = for_user.get("Role") if isinstance(for_user, dict) else None
+                        for_role = for_role_obj.get("Name") if isinstance(for_role_obj, dict) else None
 
                         ticket_data = {
                             "ticket_id": ticket_id,
                             "ticket_number": raw_data.get("TicketNumber"),
                             "subject": raw_data.get("Subject"),
-                            "description": raw_data.get("IssueDescription"),  # Not "Description"
-                            "status": workflow_step.get("Name") if isinstance(workflow_step, dict) else None,
+                            "description": raw_data.get("IssueDescription"),
+                            "status": workflow_step.get("StepName") if isinstance(workflow_step, dict) else None,
+                            "is_closed": raw_data.get("IsClosed"),
                             "priority": priority_str,
+                            "is_urgent": raw_data.get("IsUrgent"),
                             "category": issue.get("Name") if isinstance(issue, dict) else None,
+                            "issue_category": issue.get("IssueCategoryName") if isinstance(issue, dict) else None,
+                            "source": source_str,
                             "created_date": raw_data.get("CreatedDate"),
                             "modified_date": raw_data.get("ModifiedDate"),
                             "closed_date": raw_data.get("ClosedDate"),
+                            "close_reason": close_reason.get("Name") if isinstance(close_reason, dict) else None,
                             "owner_id": owner.get("UserId") if isinstance(owner, dict) else None,
                             "owner_name": owner.get("Name") if isinstance(owner, dict) else None,
                             "owner_email": owner.get("Email") if isinstance(owner, dict) else None,
+                            "for_name": for_user.get("Name") if isinstance(for_user, dict) else None,
+                            "for_email": for_user.get("Email") if isinstance(for_user, dict) else None,
+                            "for_location": for_user.get("LocationName") if isinstance(for_user, dict) else None,
+                            "for_role": for_role,
                             "assignee_id": assignee.get("UserId") if isinstance(assignee, dict) else None,
                             "assignee_name": assignee.get("Name") if isinstance(assignee, dict) else None,
-                            "team_id": None,  # No direct team field in tickets
-                            "team_name": None,
-                            "asset_id": None,  # No direct asset field in tickets
-                            "asset_tag": None,
+                            "assignee_email": assignee.get("Email") if isinstance(assignee, dict) else None,
+                            "team_id": team.get("TeamId") if isinstance(team, dict) else None,
+                            "team_name": team.get("TeamName") if isinstance(team, dict) else None,
                             "location_id": location.get("LocationId") if isinstance(location, dict) else None,
                             "location_name": location.get("Name") if isinstance(location, dict) else None,
                             "last_updated": datetime.utcnow(),

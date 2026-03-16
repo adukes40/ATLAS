@@ -11,6 +11,7 @@ import Device360 from './pages/Device360'
 import ReportsIndex from './pages/Reports/index'
 import UtilitiesIndex from './pages/Utilities/index'
 import SettingsIndex from './pages/Settings/index'
+import NotFound from './pages/NotFound'
 import Login from './pages/Login'
 import PasswordChangeModal from './components/PasswordChangeModal'
 import Footer from './components/Footer'
@@ -27,6 +28,7 @@ function AppLayout() {
   })
 
   useEffect(() => {
+    if (!isAuthenticated) return
     const fetchSettings = async () => {
       try {
         const response = await axios.get('/api/settings/public')
@@ -41,7 +43,7 @@ function AppLayout() {
       }
     }
     fetchSettings()
-  }, [])
+  }, [isAuthenticated])
 
   // Dark Mode State
   const [darkMode, setDarkMode] = useState(() => {
@@ -155,6 +157,7 @@ function AppLayout() {
             <Route path="/reports/*" element={<ReportsIndex />} />
             <Route path="/utilities/*" element={<UtilitiesIndex />} />
             <Route path="/settings/*" element={<SettingsIndex />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
 
           {/* Password Change Modal - shown when must_change_password is true */}

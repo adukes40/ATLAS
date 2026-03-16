@@ -94,6 +94,20 @@ def bulk_move_ou(request: Request, body: BulkMoveOU, db: Session = Depends(get_d
     )
 
 
+@router.post("/google/powerwash")
+@limiter.limit("5/minute")
+def bulk_powerwash(request: Request, body: BulkSerials, db: Session = Depends(get_db), user: dict = Depends(require_auth)):
+    connector = _get_google_connector()
+    return _run_bulk_google(db, connector, body.serials, connector.powerwash_device, user.get("email", ""), "powerwash")
+
+
+@router.post("/google/reboot")
+@limiter.limit("5/minute")
+def bulk_reboot(request: Request, body: BulkSerials, db: Session = Depends(get_db), user: dict = Depends(require_auth)):
+    connector = _get_google_connector()
+    return _run_bulk_google(db, connector, body.serials, connector.reboot_device, user.get("email", ""), "reboot")
+
+
 @router.post("/google/deprovision")
 @limiter.limit("3/minute")
 def bulk_deprovision(request: Request, body: BulkDeprovision, db: Session = Depends(get_db), user: dict = Depends(require_auth)):

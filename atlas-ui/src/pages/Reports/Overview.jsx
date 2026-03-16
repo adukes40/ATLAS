@@ -4,7 +4,8 @@ import axios from 'axios'
 import {
   BarChart3, Loader2, Monitor, Users, AlertTriangle, CheckCircle,
   Chrome, Server, Wifi, Settings, XCircle, Package, DollarSign,
-  Radio, Signal, Clock, Activity
+  Radio, Signal, Clock, Activity, Battery, Shield, RefreshCw, Cpu,
+  Wrench, Layers, UserCheck, GraduationCap, MapPin, ChevronRight
 } from 'lucide-react'
 import { useIntegrations } from '../../context/IntegrationsContext'
 import {
@@ -13,15 +14,6 @@ import {
 } from 'recharts'
 
 // ─── Platform Color System ───────────────────────────────────────────────────
-
-const BORDER_COLORS = {
-  blue: 'border-l-4 border-l-blue-500',
-  emerald: 'border-l-4 border-l-emerald-500',
-  purple: 'border-l-4 border-l-purple-500',
-  amber: 'border-l-4 border-l-amber-500',
-  rose: 'border-l-4 border-l-rose-500',
-  cyan: 'border-l-4 border-l-cyan-500',
-}
 
 const DEFAULT_PLATFORM_COLORS = {
   iiq: 'blue',
@@ -128,7 +120,7 @@ const CHART_PALETTE = [
 const GOOGLE_STATUS_COLORS = {
   active: CHART_COLORS.emerald,
   disabled: CHART_COLORS.red,
-  provisioned: CHART_COLORS.blue,
+  deprovisioned: CHART_COLORS.blue,
   other: CHART_COLORS.slate,
 }
 
@@ -143,9 +135,14 @@ const getAueColor = (year) => {
 // ─── IIQ Chart Helpers ───────────────────────────────────────────────────────
 
 const IIQ_STATUS_COLORS = {
-  in_service: CHART_COLORS.emerald,
-  in_storage: CHART_COLORS.amber,
-  other: CHART_COLORS.slate,
+  'In Service': CHART_COLORS.emerald,
+  'In Storage': CHART_COLORS.amber,
+  'Broken': CHART_COLORS.red,
+  'In Repair': CHART_COLORS.orange,
+  'Lost/Stolen': CHART_COLORS.pink,
+  'Retired': CHART_COLORS.slate,
+  'Damaged': CHART_COLORS.red,
+  'Disposed': CHART_COLORS.slate,
 }
 
 const IIQ_ROLE_COLORS = {
@@ -217,17 +214,30 @@ const formatRelativeTime = (isoString) => {
   return `${diffDays}d ago`
 }
 
+// ─── Schedule Formatting Helper ──────────────────────────────────────────────
+
+const formatScheduleText = (schedule) => {
+  if (!schedule || !schedule.enabled || !schedule.hours?.length) return 'No sync schedule configured'
+  const formatted = schedule.hours.map(h => {
+    const period = h >= 12 ? 'PM' : 'AM'
+    const display = h === 0 ? 12 : h > 12 ? h - 12 : h
+    return `${display}:00 ${period}`
+  })
+  if (formatted.length === 1) return `Syncs daily at ${formatted[0]}`
+  return `Syncs daily at ${formatted.join(', ')}`
+}
+
 // ─── Tab Content Components ──────────────────────────────────────────────────
 
 // ---------- Google Tab ----------
 
-function GoogleTabContent({ data }) {
+function GoogleTabContent({ data, schedule }) {
   if (!data) return null
 
   const statusData = [
     { name: 'Active', value: data.status.active, color: GOOGLE_STATUS_COLORS.active },
     { name: 'Disabled', value: data.status.disabled, color: GOOGLE_STATUS_COLORS.disabled },
-    { name: 'Provisioned', value: data.status.provisioned, color: GOOGLE_STATUS_COLORS.provisioned },
+    { name: 'Deprovisioned', value: data.status.provisioned, color: GOOGLE_STATUS_COLORS.deprovisioned },
     { name: 'Other', value: data.status.other, color: GOOGLE_STATUS_COLORS.other },
   ].filter(d => d.value > 0)
 
@@ -324,6 +334,59 @@ function GoogleTabContent({ data }) {
         </div>
       </div>
 
+      {/* Fleet Health Stats */}
+      {data.health && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
+                <RefreshCw className="h-4 w-4 text-amber-500" />
+              </div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Stale Devices</span>
+            </div>
+            <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">{(data.health.stale_count ?? 0).toLocaleString()}</p>
+            <p className="text-xs text-slate-400 mt-1">active, no sync 30+ days</p>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
+                <Battery className="h-4 w-4 text-orange-500" />
+              </div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Low Battery</span>
+            </div>
+            <p className="text-3xl font-bold text-orange-600 dark:text-orange-400">{(data.health.low_battery_count ?? 0).toLocaleString()}</p>
+            <p className="text-xs text-slate-400 mt-1">below 50% of {(data.health.battery_reporting ?? 0).toLocaleString()} reporting</p>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                <Cpu className="h-4 w-4 text-blue-500" />
+              </div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">OS Compliance</span>
+            </div>
+            <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{data.health.os_compliance_pct ?? 0}%</p>
+            <p className="text-xs text-slate-400 mt-1">on latest major version</p>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex items-center gap-3 mb-3">
+              <div className={`p-2 rounded-lg ${(data.health.dev_mode_count ?? 0) > 0 ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-emerald-100 dark:bg-emerald-900/30'}`}>
+                <Shield className={`h-4 w-4 ${(data.health.dev_mode_count ?? 0) > 0 ? 'text-amber-500' : 'text-emerald-500'}`} />
+              </div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Dev Mode</span>
+            </div>
+            <p className={`text-3xl font-bold ${(data.health.dev_mode_count ?? 0) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+              {(data.health.dev_mode_count ?? 0) === 0 ? (
+                <span className="flex items-center gap-2"><CheckCircle className="h-7 w-7" /> 0</span>
+              ) : (data.health.dev_mode_count).toLocaleString()}
+            </p>
+            <p className="text-xs text-slate-400 mt-1">{(data.health.dev_mode_count ?? 0) === 0 ? 'all verified boot' : 'security risk'}</p>
+          </div>
+        </div>
+      )}
+
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Status Pie Chart */}
@@ -384,7 +447,7 @@ function GoogleTabContent({ data }) {
                   tickLine={false}
                   tickFormatter={(value) => value >= 1000 ? `${(value / 1000).toFixed(0)}k` : value}
                 />
-                <Tooltip content={<AueTooltip />} cursor={{ fill: 'rgba(148, 163, 184, 0.1)' }} />
+                <Tooltip content={<AueTooltip />} cursor={false} />
                 <Bar dataKey="total" radius={[4, 4, 0, 0]} maxBarSize={50}>
                   {aueData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
@@ -416,18 +479,101 @@ function GoogleTabContent({ data }) {
             </div>
           </div>
         </div>
+
+        {/* OS Version Distribution */}
+        {data.os_versions && data.os_versions.length > 0 && (
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">OS Version Distribution (Active)</h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={data.os_versions} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
+                <YAxis type="category" dataKey="version" tick={{ fill: '#94a3b8', fontSize: 10 }} width={110} axisLine={false} tickLine={false} />
+                <Tooltip content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    return (
+                      <div className="bg-white dark:bg-slate-800 px-3 py-2 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
+                        <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                          {payload[0].payload.version}: <span className="font-bold">{payload[0].value.toLocaleString()}</span> devices
+                        </p>
+                      </div>
+                    )
+                  }
+                  return null
+                }} cursor={false} />
+                <Bar dataKey="count" fill={CHART_COLORS.emerald} radius={[0, 4, 4, 0]} maxBarSize={24} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Battery Health Distribution */}
+        {data.battery_distribution && data.battery_distribution.length > 0 && (
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Battery Health Distribution</h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={data.battery_distribution} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                <XAxis dataKey="range" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+                <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
+                <Tooltip content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    return (
+                      <div className="bg-white dark:bg-slate-800 px-3 py-2 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
+                        <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                          {payload[0].payload.range}: <span className="font-bold">{payload[0].value.toLocaleString()}</span> devices
+                        </p>
+                      </div>
+                    )
+                  }
+                  return null
+                }} cursor={false} />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={50}>
+                  {data.battery_distribution.map((entry, index) => {
+                    const colorMap = { '0-25%': CHART_COLORS.red, '26-50%': CHART_COLORS.amber, '51-75%': CHART_COLORS.blue, '76-100%': CHART_COLORS.emerald, 'No Data': CHART_COLORS.slate }
+                    return <Cell key={`cell-${index}`} fill={colorMap[entry.range] || CHART_COLORS.slate} />
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="flex flex-wrap justify-center gap-4 mt-4">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CHART_COLORS.red }} />
+                <span className="text-xs text-slate-600 dark:text-slate-400">Critical (0-25%)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CHART_COLORS.amber }} />
+                <span className="text-xs text-slate-600 dark:text-slate-400">Low (26-50%)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CHART_COLORS.blue }} />
+                <span className="text-xs text-slate-600 dark:text-slate-400">Good (51-75%)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CHART_COLORS.emerald }} />
+                <span className="text-xs text-slate-600 dark:text-slate-400">Excellent (76-100%)</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Data Freshness */}
       <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
-        <div className="flex items-start gap-4">
-          <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-            <Clock className="h-5 w-5 text-blue-500" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-start gap-4">
+            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+              <Clock className="h-5 w-5 text-blue-500" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-1">Data Freshness</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {formatScheduleText(schedule)}
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-1">Data Freshness</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Dashboard data syncs nightly at 2 AM. Hover over any bar to see the top 5 models for that AUE year.
+          <div className="text-right">
+            <p className="text-xs text-slate-400">Last sync</p>
+            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+              {data.last_sync ? formatRelativeTime(data.last_sync) : 'Unknown'}
             </p>
           </div>
         </div>
@@ -438,14 +584,15 @@ function GoogleTabContent({ data }) {
 
 // ---------- IIQ Tab ----------
 
-function IIQTabContent({ data, ticketData }) {
+function IIQTabContent({ data, ticketData, schedule }) {
   if (!data) return null
 
-  const statusData = [
-    { name: 'In Service', value: data.status.in_service, color: IIQ_STATUS_COLORS.in_service },
-    { name: 'In Storage', value: data.status.in_storage, color: IIQ_STATUS_COLORS.in_storage },
-    { name: 'Other', value: data.status.other, color: IIQ_STATUS_COLORS.other },
-  ].filter(d => d.value > 0)
+  // Full status breakdown from backend (all distinct statuses)
+  const statusData = (data.status_breakdown || []).map((item, idx) => ({
+    name: item.status,
+    value: item.count,
+    color: IIQ_STATUS_COLORS[item.status] || CHART_PALETTE[idx % CHART_PALETTE.length],
+  })).filter(d => d.value > 0)
 
   const roleData = data.by_role?.map((item, idx) => ({
     name: item.role,
@@ -453,8 +600,8 @@ function IIQTabContent({ data, ticketData }) {
     color: IIQ_ROLE_COLORS[item.role] || CHART_PALETTE[idx % CHART_PALETTE.length],
   })) || []
 
-  const locationData = data.by_location?.slice(0, 5).map((item, idx) => ({
-    name: item.name,
+  const locationData = data.by_location?.slice(0, 10).map((item, idx) => ({
+    name: item.name?.length > 18 ? item.name.substring(0, 18) + '...' : item.name,
     fullName: item.fullName || item.name,
     count: item.count,
     color: CHART_PALETTE[idx % CHART_PALETTE.length],
@@ -467,7 +614,37 @@ function IIQTabContent({ data, ticketData }) {
     color: CHART_PALETTE[idx % CHART_PALETTE.length],
   })) || []
 
+  const gradeData = data.by_grade?.map((item, idx) => ({
+    grade: item.grade,
+    count: item.count,
+    color: CHART_PALETTE[idx % CHART_PALETTE.length],
+  })) || []
+
+  const feesByLocation = data.fees_by_location?.map((item, idx) => ({
+    name: item.location?.length > 18 ? item.location.substring(0, 18) + '...' : item.location,
+    fullName: item.location,
+    total: Math.round(item.total),
+    color: CHART_PALETTE[idx % CHART_PALETTE.length],
+  })) || []
+
   const IIQBarTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      const d = payload[0].payload
+      return (
+        <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 max-w-xs">
+          <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+            {d.fullName || d.name || d.grade}
+          </p>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+            {(d.count ?? d.total)?.toLocaleString()} {d.total !== undefined ? 'in fees' : 'devices'}
+          </p>
+        </div>
+      )
+    }
+    return null
+  }
+
+  const FeeBarTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const d = payload[0].payload
       return (
@@ -475,8 +652,8 @@ function IIQTabContent({ data, ticketData }) {
           <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
             {d.fullName || d.name}
           </p>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            {d.count.toLocaleString()} devices
+          <p className="text-sm text-red-500 mt-1">
+            ${d.total?.toLocaleString()} outstanding
           </p>
         </div>
       )
@@ -486,7 +663,7 @@ function IIQTabContent({ data, ticketData }) {
 
   return (
     <div className="space-y-6">
-      {/* Summary Stats */}
+      {/* Row 1: Primary KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center gap-3 mb-3">
@@ -511,13 +688,38 @@ function IIQTabContent({ data, ticketData }) {
 
         <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+              <UserCheck className="h-4 w-4 text-blue-500" />
+            </div>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Assigned</span>
+          </div>
+          <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{data.assignment.assigned.toLocaleString()}</p>
+          <p className="text-xs text-slate-400 mt-1">{data.assignment.unassigned.toLocaleString()} unassigned</p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
               <AlertTriangle className="h-4 w-4 text-amber-500" />
             </div>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Open Tickets</span>
+          </div>
+          <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">{ticketData?.open_tickets ?? data.tickets.total_open_tickets}</p>
+          <p className="text-xs text-slate-400 mt-1">currently open</p>
+        </div>
+      </div>
+
+      {/* Row 2: Operational Health Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
+              <Monitor className="h-4 w-4 text-amber-500" />
+            </div>
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">No Chromebook</span>
           </div>
-          <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">{data.students?.without_chromebook || 0}</p>
-          <p className="text-xs text-slate-400 mt-1">{data.students?.with_chromebook?.toLocaleString() || 0} students have one</p>
+          <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">{(data.students?.without_chromebook || 0).toLocaleString()}</p>
+          <p className="text-xs text-slate-400 mt-1">of {data.students?.total?.toLocaleString() || 0} students</p>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -530,13 +732,75 @@ function IIQTabContent({ data, ticketData }) {
           <p className="text-3xl font-bold text-red-600 dark:text-red-400">${data.fees.total_outstanding.toLocaleString()}</p>
           <p className="text-xs text-slate-400 mt-1">{data.fees.users_with_balance} users with balance</p>
         </div>
+
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+              <Layers className="h-4 w-4 text-purple-500" />
+            </div>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Multi-Device Users</span>
+          </div>
+          <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">{(data.multi_device_count || 0).toLocaleString()}</p>
+          <p className="text-xs text-slate-400 mt-1">users with 2+ devices</p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="flex items-center gap-3 mb-3">
+            <div className={`p-2 rounded-lg ${(data.in_repair_count || 0) > 0 ? 'bg-orange-100 dark:bg-orange-900/30' : 'bg-emerald-100 dark:bg-emerald-900/30'}`}>
+              <Wrench className={`h-4 w-4 ${(data.in_repair_count || 0) > 0 ? 'text-orange-500' : 'text-emerald-500'}`} />
+            </div>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">In Repair / Broken</span>
+          </div>
+          <p className={`text-3xl font-bold ${(data.in_repair_count || 0) > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+            {(data.in_repair_count || 0).toLocaleString()}
+          </p>
+          <p className="text-xs text-slate-400 mt-1">awaiting return to service</p>
+        </div>
       </div>
 
-      {/* Charts Row 1 */}
+      {/* Ticket Stats Row */}
+      {ticketData && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+              </div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Open Tickets</span>
+            </div>
+            <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{ticketData.open_tickets}</p>
+            <p className="text-xs text-slate-400 mt-1">currently open</p>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                <Activity className="h-4 w-4 text-blue-500" />
+              </div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">School Year</span>
+            </div>
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{ticketData.school_year_tickets}+</p>
+            <p className="text-xs text-slate-400 mt-1">{ticketData.school_year} tickets</p>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                <Clock className="h-4 w-4 text-slate-500" />
+              </div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">All Time</span>
+            </div>
+            <p className="text-2xl font-bold text-slate-600 dark:text-slate-300">{ticketData.total_all_time.toLocaleString()}</p>
+            <p className="text-xs text-slate-400 mt-1">total tickets</p>
+          </div>
+        </div>
+      )}
+
+      {/* Charts Row 1: Status Pie + Grade Distribution */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Status Pie Chart */}
+        {/* Full Status Pie Chart */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Device Status Distribution</h3>
+          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Asset Status Distribution</h3>
           {statusData.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
@@ -562,7 +826,7 @@ function IIQTabContent({ data, ticketData }) {
               No status data available
             </div>
           )}
-          <div className="flex flex-wrap justify-center gap-4 mt-4">
+          <div className="flex flex-wrap justify-center gap-3 mt-4">
             {statusData.map((entry) => (
               <div key={entry.name} className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }} />
@@ -572,58 +836,93 @@ function IIQTabContent({ data, ticketData }) {
           </div>
         </div>
 
-        {/* Location Table */}
+        {/* Grade Distribution Bar Chart */}
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Devices by Grade Level</h3>
+          {gradeData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={gradeData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                <XAxis
+                  dataKey="grade"
+                  tick={{ fill: '#94a3b8', fontSize: 11 }}
+                  axisLine={{ stroke: '#e2e8f0' }}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fill: '#94a3b8', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(value) => value >= 1000 ? `${(value / 1000).toFixed(0)}k` : value}
+                />
+                <Tooltip content={<IIQBarTooltip />} cursor={false} />
+                <Bar dataKey="count" fill={CHART_COLORS.blue} radius={[4, 4, 0, 0]} maxBarSize={40}>
+                  {gradeData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={CHART_PALETTE[index % CHART_PALETTE.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-64 flex items-center justify-center text-slate-400">
+              No grade data available
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Charts Row 2: Location Bar + Top Models */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Location Horizontal Bar Chart */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Devices by Location</h3>
-            <span className="text-xs text-slate-400">{data.by_location?.length || 0} locations</span>
+            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Top Locations</h3>
+            <span className="text-xs text-slate-400">{data.by_location?.length || 0} total</span>
           </div>
-          {data.by_location?.length > 0 ? (
-            <div className="max-h-72 overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-white dark:bg-slate-900">
-                  <tr className="border-b border-slate-200 dark:border-slate-700">
-                    <th className="text-left py-2 px-2 text-xs font-bold text-slate-400 uppercase">Location</th>
-                    <th className="text-right py-2 px-2 text-xs font-bold text-slate-400 uppercase">Devices</th>
-                    <th className="text-right py-2 px-2 text-xs font-bold text-slate-400 uppercase w-24">%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.by_location.map((loc, idx) => (
-                    <tr key={idx} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                      <td className="py-2 px-2 text-slate-700 dark:text-slate-300" title={loc.fullName}>
-                        {loc.name}
-                      </td>
-                      <td className="py-2 px-2 text-right font-medium text-slate-800 dark:text-slate-100">
-                        {loc.count.toLocaleString()}
-                      </td>
-                      <td className="py-2 px-2 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="w-12 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-blue-500 rounded-full"
-                              style={{ width: `${Math.min(100, (loc.count / data.total) * 100)}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-slate-400 w-10 text-right">
-                            {data.total > 0 ? ((loc.count / data.total) * 100).toFixed(1) : 0}%
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
+          {locationData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={locationData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
+                <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} width={120} axisLine={false} tickLine={false} />
+                <Tooltip content={<IIQBarTooltip />} cursor={false} />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={20}>
+                  {locationData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           ) : (
             <div className="h-64 flex items-center justify-center text-slate-400">
               No location data available
             </div>
           )}
         </div>
+
+        {/* Model Bar Chart */}
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Top Models</h3>
+          {modelData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={modelData} layout="vertical" margin={{ top: 5, right: 20, left: 120, bottom: 5 }}>
+                <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={(value) => value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value} />
+                <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} width={115} />
+                <Tooltip content={<IIQBarTooltip />} cursor={false} />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={20}>
+                  {modelData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-64 flex items-center justify-center text-slate-400">
+              No model data available
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Charts Row 2 */}
+      {/* Charts Row 3: Role Pie + Fees by Location */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Role Pie Chart */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -663,124 +962,126 @@ function IIQTabContent({ data, ticketData }) {
           </div>
         </div>
 
-        {/* Model Bar Chart */}
+        {/* Fees by Location Bar Chart */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Top Models</h3>
-          {modelData.length > 0 ? (
+          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Outstanding Fees by Location</h3>
+          {feesByLocation.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={modelData} layout="vertical" margin={{ top: 5, right: 20, left: 120, bottom: 5 }}>
-                <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={(value) => value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value} />
-                <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} width={115} />
-                <Tooltip content={<IIQBarTooltip />} cursor={{ fill: 'rgba(148, 163, 184, 0.1)' }} />
-                <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={20}>
-                  {modelData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Bar>
+              <BarChart data={feesByLocation} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`} />
+                <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} width={120} axisLine={false} tickLine={false} />
+                <Tooltip content={<FeeBarTooltip />} cursor={false} />
+                <Bar dataKey="total" fill={CHART_COLORS.red} radius={[0, 4, 4, 0]} maxBarSize={20} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
             <div className="h-64 flex items-center justify-center text-slate-400">
-              No model data available
+              No fee data available
             </div>
           )}
         </div>
       </div>
 
-      {/* Users with Outstanding Fees */}
-      <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Users with Outstanding Fees</h3>
-          <span className="text-xs text-slate-400">Top 20 by balance</span>
-        </div>
-        {data.fees.top_users.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-700">
-                  <th className="text-left py-3 px-4 text-xs font-bold text-slate-400 uppercase">Name</th>
-                  <th className="text-left py-3 px-4 text-xs font-bold text-slate-400 uppercase">Email</th>
-                  <th className="text-left py-3 px-4 text-xs font-bold text-slate-400 uppercase">Role</th>
-                  <th className="text-right py-3 px-4 text-xs font-bold text-slate-400 uppercase">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.fees.top_users.map((user, idx) => (
-                  <tr key={idx} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="py-3 px-4 font-medium text-slate-800 dark:text-slate-100">{user.name}</td>
-                    <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{user.email}</td>
-                    <td className="py-3 px-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        user.role === 'Student' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                        user.role === 'Faculty' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' :
-                        'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                      }`}>
-                        {user.role}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-bold text-red-600 dark:text-red-400">
-                      ${user.balance.toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="py-8 text-center text-slate-400">
-            No users with outstanding fees
-          </div>
-        )}
-      </div>
-
-      {/* Ticket Stats Row */}
-      {ticketData && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
-                <CheckCircle className="h-4 w-4 text-emerald-500" />
-              </div>
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Open Tickets</span>
+      {/* Charts Row 4: Ticket Trend + Tickets by Location */}
+      {ticketData && (ticketData.by_month?.length > 0 || ticketData.by_location?.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Monthly Ticket Trend */}
+          {ticketData.by_month?.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">
+                Ticket Volume by Month ({ticketData.school_year})
+              </h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={ticketData.by_month.map(m => ({
+                  ...m,
+                  label: new Date(m.month + '-01').toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+                }))} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: '#94a3b8', fontSize: 11 }}
+                    axisLine={{ stroke: '#e2e8f0' }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: '#94a3b8', fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
+                  />
+                  <Tooltip content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="bg-white dark:bg-slate-800 px-3 py-2 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
+                          <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                            {payload[0].payload.label}: <span className="font-bold">{payload[0].value.toLocaleString()}</span> tickets
+                          </p>
+                        </div>
+                      )
+                    }
+                    return null
+                  }} cursor={false} />
+                  <Bar dataKey="count" fill={CHART_COLORS.amber} radius={[4, 4, 0, 0]} maxBarSize={50} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-            <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{ticketData.open_tickets}</p>
-            <p className="text-xs text-slate-400 mt-1">currently open</p>
-          </div>
+          )}
 
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                <AlertTriangle className="h-4 w-4 text-blue-500" />
-              </div>
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">School Year</span>
+          {/* Tickets by Location */}
+          {ticketData.by_location?.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">
+                Tickets by Location ({ticketData.school_year})
+              </h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart
+                  data={ticketData.by_location.slice(0, 10).map(l => ({
+                    name: l.location?.length > 18 ? l.location.substring(0, 18) + '...' : l.location,
+                    fullName: l.location,
+                    count: l.count,
+                  }))}
+                  layout="vertical"
+                  margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                >
+                  <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
+                  <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} width={120} axisLine={false} tickLine={false} />
+                  <Tooltip content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const d = payload[0].payload
+                      return (
+                        <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 max-w-xs">
+                          <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{d.fullName}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">{d.count.toLocaleString()} tickets</p>
+                        </div>
+                      )
+                    }
+                    return null
+                  }} cursor={false} />
+                  <Bar dataKey="count" fill={CHART_COLORS.amber} radius={[0, 4, 4, 0]} maxBarSize={20} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{ticketData.school_year_tickets}+</p>
-            <p className="text-xs text-slate-400 mt-1">{ticketData.school_year} tickets</p>
-          </div>
-
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg">
-                <Clock className="h-4 w-4 text-slate-500" />
-              </div>
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">All Time</span>
-            </div>
-            <p className="text-2xl font-bold text-slate-600 dark:text-slate-300">{ticketData.total_all_time.toLocaleString()}</p>
-            <p className="text-xs text-slate-400 mt-1">total tickets</p>
-          </div>
+          )}
         </div>
       )}
 
       {/* Data Freshness */}
       <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
-        <div className="flex items-start gap-4">
-          <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-            <Clock className="h-5 w-5 text-blue-500" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-start gap-4">
+            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+              <Clock className="h-5 w-5 text-blue-500" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-1">Data Freshness</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {formatScheduleText(schedule)}. Ticket stats updated during nightly sync.
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-1">Data Freshness</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Asset data syncs nightly at 3 AM. Ticket counts are live from IIQ API. Fee balances are aggregated by user.
+          <div className="text-right">
+            <p className="text-xs text-slate-400">Last sync</p>
+            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+              {data.last_sync ? formatRelativeTime(data.last_sync) : 'Unknown'}
             </p>
           </div>
         </div>
@@ -791,7 +1092,7 @@ function IIQTabContent({ data, ticketData }) {
 
 // ---------- Meraki Tab ----------
 
-function MerakiTabContent({ data }) {
+function MerakiTabContent({ data, schedule }) {
   if (!data) return null
 
   const ssidData = data.clients?.by_ssid?.map((item, idx) => ({
@@ -923,7 +1224,7 @@ function MerakiTabContent({ data }) {
             <BarChart data={siteData} layout="vertical" margin={{ top: 5, right: 20, left: 120, bottom: 5 }}>
               <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} />
               <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} width={115} />
-              <Tooltip content={<MerakiBarTooltip />} cursor={{ fill: 'rgba(148, 163, 184, 0.1)' }} />
+              <Tooltip content={<MerakiBarTooltip />} cursor={false} />
               <Legend wrapperStyle={{ fontSize: '12px' }} />
               <Bar dataKey="aps" name="APs" fill={CHART_COLORS.purple} stackId="stack">
                 <LabelList dataKey="aps" position="center" fill="#ffffff" fontSize={10} />
@@ -1115,7 +1416,7 @@ function MerakiTabContent({ data }) {
               <BarChart data={topApsData} layout="vertical" margin={{ top: 5, right: 40, left: 110, bottom: 5 }}>
                 <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} />
                 <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} width={105} />
-                <Tooltip content={<MerakiBarTooltip />} cursor={{ fill: 'rgba(148, 163, 184, 0.1)' }} />
+                <Tooltip content={<MerakiBarTooltip />} cursor={false} />
                 <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={18}>
                   {topApsData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
@@ -1164,7 +1465,7 @@ function MerakiTabContent({ data }) {
         </div>
       </div>
 
-      {/* Network Summary */}
+      {/* Data Freshness */}
       <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-start gap-4">
@@ -1172,15 +1473,15 @@ function MerakiTabContent({ data }) {
               <Wifi className="h-5 w-5 text-purple-500" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-1">Network Summary</h3>
+              <h3 className="font-bold text-slate-700 dark:text-slate-200 mb-1">Data Freshness</h3>
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 {infra.networks} Meraki networks across {data.by_site?.length || 0} sites.
-                Data syncs nightly at 4 AM from Meraki Dashboard API.
+                {' '}{formatScheduleText(schedule)}
               </p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-slate-400">Last device sync</p>
+            <p className="text-xs text-slate-400">Last sync</p>
             <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
               {formatRelativeTime(data.last_sync?.devices)}
             </p>
@@ -1202,11 +1503,6 @@ const TAB_CONFIG = [
 export default function Overview() {
   const { integrations, loading: integrationsLoading } = useIntegrations()
 
-  // Stats strip
-  const [stats, setStats] = useState(null)
-  const [statsLoading, setStatsLoading] = useState(true)
-  const [statsError, setStatsError] = useState(null)
-
   // Tab state
   const [activeTab, setActiveTab] = useState(null)
 
@@ -1214,6 +1510,8 @@ export default function Overview() {
   const [tabData, setTabData] = useState({})
   // Per-tab loading/error: { google: { loading, error }, ... }
   const [tabStatus, setTabStatus] = useState({})
+  // Sync schedules: { google: {...}, iiq: {...}, meraki: {...} }
+  const [schedules, setSchedules] = useState({})
 
   // Platform colors
   const [platformColors, setPlatformColors] = useState(() => ({
@@ -1235,6 +1533,13 @@ export default function Overview() {
     return () => window.removeEventListener('atlas-colors-changed', handleColorsChange)
   }, [])
 
+  // Fetch sync schedules once
+  useEffect(() => {
+    axios.get('/api/utilities/schedules')
+      .then(res => setSchedules(res.data))
+      .catch(() => {}) // silently fail — freshness text will show fallback
+  }, [])
+
   // Determine configured platforms
   const configuredPlatforms = TAB_CONFIG.filter(t => integrations[t.id])
 
@@ -1244,23 +1549,6 @@ export default function Overview() {
       setActiveTab(configuredPlatforms[0].id)
     }
   }, [integrationsLoading, integrations]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Fetch overview stats
-  useEffect(() => {
-    if (integrationsLoading) return
-    const fetchStats = async () => {
-      try {
-        const response = await axios.get('/api/reports/overview/stats')
-        setStats(response.data)
-      } catch (err) {
-        console.error('Failed to fetch overview stats:', err)
-        setStatsError('Failed to load overview data')
-      } finally {
-        setStatsLoading(false)
-      }
-    }
-    fetchStats()
-  }, [integrationsLoading])
 
   // Lazy-load tab data when active tab changes
   const fetchTabData = useCallback(async (tabId) => {
@@ -1302,11 +1590,6 @@ export default function Overview() {
   }, [activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Color helpers
-  const getVendorBorderClass = (vendor) => {
-    const colorKey = platformColors[vendor]
-    return BORDER_COLORS[colorKey] || ''
-  }
-
   const getPlatformColorClasses = (platformId) => {
     const colorKey = platformColors[platformId] || 'blue'
     return COLOR_CLASSES[colorKey] || COLOR_CLASSES.blue
@@ -1363,96 +1646,6 @@ export default function Overview() {
         </p>
       </div>
 
-      {/* ─── Stats Strip ──────────────────────────────────────────────────── */}
-      {statsLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 text-slate-400 animate-spin" />
-        </div>
-      ) : statsError ? (
-        <div className="p-4 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-xl text-red-600 dark:text-red-400 text-sm">
-          {statsError}
-        </div>
-      ) : stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {/* IIQ Assets */}
-          {integrations.iiq && (
-            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className={`p-2 ${getPlatformColorClasses('iiq').iconBg} rounded-lg`}>
-                  <Monitor className={`h-4 w-4 ${getPlatformColorClasses('iiq').icon}`} />
-                </div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">IIQ Assets</span>
-              </div>
-              {stats.iiq?.configured ? (
-                <p className="text-3xl font-bold text-slate-800 dark:text-slate-100">{stats.iiq?.total_assets}</p>
-              ) : (
-                <p className="text-sm font-medium text-slate-400 italic">No Data Synced</p>
-              )}
-            </div>
-          )}
-
-          {/* Assigned (IIQ) */}
-          {integrations.iiq && (
-            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('iiq')}`}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className={`p-2 ${getPlatformColorClasses('iiq').iconBg} rounded-lg`}>
-                  <Users className={`h-4 w-4 ${getPlatformColorClasses('iiq').icon}`} />
-                </div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Assigned</span>
-              </div>
-              {stats.iiq?.configured ? (
-                <>
-                  <p className={`text-3xl font-bold ${getPlatformColorClasses('iiq').stat}`}>{stats.iiq?.assigned}</p>
-                  <p className="text-xs text-slate-400 mt-1">{stats.iiq?.unassigned} unassigned</p>
-                </>
-              ) : (
-                <p className="text-sm font-medium text-slate-400 italic">No Data Synced</p>
-              )}
-            </div>
-          )}
-
-          {/* Google Active */}
-          {integrations.google && (
-            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('google')}`}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className={`p-2 ${getPlatformColorClasses('google').iconBg} rounded-lg`}>
-                  <CheckCircle className={`h-4 w-4 ${getPlatformColorClasses('google').icon}`} />
-                </div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Google Active</span>
-              </div>
-              {stats.google?.configured ? (
-                <>
-                  <p className={`text-3xl font-bold ${getPlatformColorClasses('google').stat}`}>{stats.google?.active}</p>
-                  <p className="text-xs text-slate-400 mt-1">of {stats.google?.total_devices} in Google</p>
-                </>
-              ) : (
-                <p className="text-sm font-medium text-slate-400 italic">No Data Synced</p>
-              )}
-            </div>
-          )}
-
-          {/* AUE Expired (Google) */}
-          {integrations.google && (
-            <div className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${getVendorBorderClass('google')}`}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
-                  <AlertTriangle className="h-4 w-4 text-red-500" />
-                </div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Expired AUE</span>
-              </div>
-              {stats.google?.configured ? (
-                <>
-                  <p className="text-3xl font-bold text-red-600 dark:text-red-400">{stats.google?.aue_expired}</p>
-                  <p className="text-xs text-slate-400 mt-1">past end of life</p>
-                </>
-              ) : (
-                <p className="text-sm font-medium text-slate-400 italic">No Data Synced</p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ─── Source Tabs ──────────────────────────────────────────────────── */}
       {configuredPlatforms.length > 0 && (
         <div>
@@ -1492,13 +1685,34 @@ export default function Overview() {
             ) : (
               <>
                 {activeTab === 'google' && tabData.google && (
-                  <GoogleTabContent data={tabData.google} />
+                  <>
+                    <GoogleTabContent data={tabData.google} schedule={schedules.google} />
+                    <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+                      <Link to="/reports/device-inventory" className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
+                        View full inventory report <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </>
                 )}
                 {activeTab === 'iiq' && tabData.iiq && (
-                  <IIQTabContent data={tabData.iiq.main} ticketData={tabData.iiq.tickets} />
+                  <>
+                    <IIQTabContent data={tabData.iiq.main} ticketData={tabData.iiq.tickets} schedule={schedules.iiq} />
+                    <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+                      <Link to="/reports/device-inventory" className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
+                        View full inventory report <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </>
                 )}
                 {activeTab === 'meraki' && tabData.meraki && (
-                  <MerakiTabContent data={tabData.meraki} />
+                  <>
+                    <MerakiTabContent data={tabData.meraki} schedule={schedules.meraki} />
+                    <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+                      <Link to="/reports/infrastructure-inventory" className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
+                        View full infrastructure report <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </>
                 )}
               </>
             )}

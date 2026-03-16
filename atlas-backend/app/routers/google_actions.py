@@ -113,6 +113,65 @@ def disable_device(
     return {"status": "success", "message": f"Device {serial} has been disabled"}
 
 
+@router.post("/device/{serial}/google/powerwash")
+@limiter.limit("5/minute")
+def powerwash_device(
+    request: Request,
+    serial: str,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth)
+):
+    """Issue a remote PowerWash command to a Chrome OS device."""
+    record = _get_device_record(db, serial)
+
+    if record.status and record.status.upper() == "DEPROVISIONED":
+        raise HTTPException(status_code=409, detail="Cannot PowerWash a deprovisioned device")
+
+    connector = _get_google_connector()
+    try:
+        result = connector.powerwash_device(record.google_id)
+        state = result.get("state", "UNKNOWN") if result else "UNKNOWN"
+        logger.info(f"[{user.get('email')}] PowerWash issued for device {serial} (state: {state})")
+    except Exception as e:
+        error_str = str(e)
+        logger.error(f"Failed to PowerWash device {serial}: {e}")
+        # Handle "already has a pending command" gracefully
+        if "pending" in error_str.lower() or "already" in error_str.lower():
+            raise HTTPException(status_code=409, detail="A PowerWash command is already pending for this device. Reboot the device or reload policies (chrome://policy) to trigger it.")
+        raise HTTPException(status_code=502, detail=f"Google API error: {error_str}")
+
+    return {"status": "success", "message": f"PowerWash command queued for {serial} (state: {state}). The device will wipe on its next policy check-in with Google.", "command_state": state}
+
+
+@router.post("/device/{serial}/google/reboot")
+@limiter.limit("10/minute")
+def reboot_device(
+    request: Request,
+    serial: str,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_auth)
+):
+    """Issue a remote Reboot command to a Chrome OS device."""
+    record = _get_device_record(db, serial)
+
+    if record.status and record.status.upper() == "DEPROVISIONED":
+        raise HTTPException(status_code=409, detail="Cannot reboot a deprovisioned device")
+
+    connector = _get_google_connector()
+    try:
+        result = connector.reboot_device(record.google_id)
+        state = result.get("state", "UNKNOWN") if result else "UNKNOWN"
+        logger.info(f"[{user.get('email')}] Reboot issued for device {serial} (state: {state})")
+    except Exception as e:
+        error_str = str(e)
+        logger.error(f"Failed to reboot device {serial}: {e}")
+        if "pending" in error_str.lower() or "already" in error_str.lower():
+            raise HTTPException(status_code=409, detail="A reboot command is already pending for this device.")
+        raise HTTPException(status_code=502, detail=f"Google API error: {error_str}")
+
+    return {"status": "success", "message": f"Reboot command sent to {serial} (state: {state}).", "command_state": state}
+
+
 class DeprovisionRequest(BaseModel):
     deprovision_reason: str
 

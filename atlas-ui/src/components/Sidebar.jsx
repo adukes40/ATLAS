@@ -71,8 +71,9 @@ export default function Sidebar() {
     }
   }, [contextMenu])
 
-  const folders = [...new Set(savedReports.filter(r => r.folder).map(r => r.folder))]
-  const ungrouped = savedReports.filter(r => !r.folder)
+  const userSavedReports = savedReports.filter(r => !r.is_system)
+  const folders = [...new Set(userSavedReports.filter(r => r.folder).map(r => r.folder))]
+  const ungrouped = userSavedReports.filter(r => !r.folder)
 
   const toggleFolder = (folderName) => {
     setOpenFolders(prev => ({ ...prev, [folderName]: !prev[folderName] }))
@@ -249,8 +250,8 @@ export default function Sidebar() {
               <span className="truncate max-w-[140px]">Custom Builder</span>
             </NavLink>
 
-            {/* Saved Reports */}
-            {savedReports.length > 0 && (
+            {/* Saved Reports (user-created only) */}
+            {userSavedReports.length > 0 && (
               <>
                 <div className="flex items-center gap-2 px-3 pt-2 pb-1">
                   <div className="flex-1 border-t border-slate-200 dark:border-slate-700" />
