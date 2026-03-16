@@ -5,7 +5,7 @@ import {
   BarChart3, Loader2, Monitor, Users, AlertTriangle, CheckCircle,
   Chrome, Server, Wifi, Settings, XCircle, Package, DollarSign,
   Radio, Signal, Clock, Activity, Battery, Shield, RefreshCw, Cpu,
-  Wrench, Layers, UserCheck, GraduationCap, MapPin
+  Wrench, Layers, UserCheck, GraduationCap, MapPin, ChevronRight
 } from 'lucide-react'
 import { useIntegrations } from '../../context/IntegrationsContext'
 import {
@@ -1685,13 +1685,34 @@ export default function Overview() {
             ) : (
               <>
                 {activeTab === 'google' && tabData.google && (
-                  <GoogleTabContent data={tabData.google} schedule={schedules.google} />
+                  <>
+                    <GoogleTabContent data={tabData.google} schedule={schedules.google} />
+                    <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+                      <Link to="/reports/device-inventory" className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
+                        View full inventory report <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </>
                 )}
                 {activeTab === 'iiq' && tabData.iiq && (
-                  <IIQTabContent data={tabData.iiq.main} ticketData={tabData.iiq.tickets} schedule={schedules.iiq} />
+                  <>
+                    <IIQTabContent data={tabData.iiq.main} ticketData={tabData.iiq.tickets} schedule={schedules.iiq} />
+                    <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+                      <Link to="/reports/device-inventory" className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
+                        View full inventory report <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </>
                 )}
                 {activeTab === 'meraki' && tabData.meraki && (
-                  <MerakiTabContent data={tabData.meraki} schedule={schedules.meraki} />
+                  <>
+                    <MerakiTabContent data={tabData.meraki} schedule={schedules.meraki} />
+                    <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+                      <Link to="/reports/infrastructure-inventory" className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
+                        View full infrastructure report <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </>
                 )}
               </>
             )}

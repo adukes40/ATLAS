@@ -728,7 +728,7 @@ export default function UnifiedReportView({ systemSlug, isNew }) {
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto -mx-4 sm:mx-0">
         {report.columns.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <Columns3 className="h-12 w-12 text-slate-300 dark:text-slate-600 mb-4" />

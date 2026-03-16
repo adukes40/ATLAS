@@ -7,7 +7,7 @@ from fastapi import APIRouter, Request, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.database import SessionLocal
-from app.auth import require_admin, require_auth
+from app.auth import require_admin
 from app.config import refresh_config
 from app.services.settings_service import (
     get_all_settings,
@@ -62,9 +62,7 @@ class TestConnectionResult(BaseModel):
 # Settings Endpoints
 # =============================================================================
 @router.get("/public")
-async def get_public_settings(
-    current_user: dict = Depends(require_auth)
-):
+async def get_public_settings():
     """
     Get public settings (district name, support email) for footer/UI.
     Accessible to all authenticated users.

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import {
   Search, Server, Monitor, Wifi, AlertTriangle, CheckCircle,
@@ -59,10 +59,12 @@ export default function Device360() {
     google: getPlatformColor('google'),
     meraki: getPlatformColor('meraki'),
   }))
+  const inputRef = useRef(null)
   const { integrations } = useIntegrations()
 
   const [showActionPanel, setShowActionPanel] = useState(false)
   const [toast, setToast] = useState(null) // { type: 'success'|'error', message: '' }
+  const [emptyHint, setEmptyHint] = useState(false)
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -103,16 +105,23 @@ export default function Device360() {
 
   const handleSearch = async (e) => {
     e.preventDefault()
-    if (!serial) return
+    const trimmed = serial.trim()
+    if (!trimmed) {
+      inputRef.current?.focus()
+      setEmptyHint(true)
+      setTimeout(() => setEmptyHint(false), 3000)
+      return
+    }
 
+    setEmptyHint(false)
     setLoading(true)
     setError(null)
     setData(null)
     setNotFound(false)
-    setSearchedQuery(serial.trim())
+    setSearchedQuery(trimmed)
 
     try {
-      const response = await axios.get(`/api/device/${serial}`)
+      const response = await axios.get(`/api/device/${encodeURIComponent(trimmed)}`)
       setData(response.data)
     } catch (err) {
       console.error(err)
@@ -197,7 +206,9 @@ export default function Device360() {
         <form onSubmit={handleSearch} className="relative flex items-center group">
           <Search className="absolute left-4 text-slate-400 h-5 w-5 group-focus-within:text-blue-500 transition-colors" />
           <input
+            ref={inputRef}
             type="text"
+            maxLength={100}
             placeholder="Scan Serial or Asset Tag..."
             className="w-full pl-12 pr-4 py-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-lg transition-all dark:text-white"
             value={serial}
@@ -211,6 +222,11 @@ export default function Device360() {
             {loading ? '...' : 'Lookup'}
           </button>
         </form>
+        {emptyHint && (
+          <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 text-center animate-in fade-in">
+            Please enter a serial number or asset tag to search.
+          </p>
+        )}
         {error && (
             <div className="mt-4 p-4 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 rounded-lg border border-red-100 dark:border-red-900/50 flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
                 <AlertTriangle className="h-5 w-5"/>

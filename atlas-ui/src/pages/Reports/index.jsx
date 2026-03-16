@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import NotFound from '../NotFound'
 
 // Report Pages
 import Overview from './Overview'
@@ -20,6 +21,7 @@ export default function ReportsIndex() {
         <Route path="/firmware-compliance" element={<UnifiedReportView systemSlug="firmware-compliance" />} />
         <Route path="/custom" element={<UnifiedReportView isNew />} />
         <Route path="/saved/:id" element={<UnifiedReportView />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </div>
   )

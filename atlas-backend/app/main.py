@@ -121,8 +121,8 @@ app.include_router(settings.router)
 # IIQ Sources router (require authentication)
 app.include_router(iiq_sources.router, dependencies=[Depends(require_auth)])
 
-# Config router (integrations status - requires auth)
-app.include_router(config.router, dependencies=[Depends(require_auth)])
+# Config router (integrations status - public, returns non-sensitive data)
+app.include_router(config.router)
 
 # System router (version, updates - auth handled per-endpoint)
 app.include_router(system.router)

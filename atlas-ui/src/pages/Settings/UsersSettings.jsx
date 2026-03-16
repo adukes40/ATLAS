@@ -206,6 +206,7 @@ export default function UsersSettings() {
             <thead className="bg-slate-50 dark:bg-slate-900/50">
               <tr>
                 <th className="text-left py-3 px-4 font-medium text-slate-600 dark:text-slate-300">User</th>
+                <th className="text-left py-3 px-4 font-medium text-slate-600 dark:text-slate-300">Email</th>
                 <th className="text-left py-3 px-4 font-medium text-slate-600 dark:text-slate-300">Role</th>
                 <th className="text-left py-3 px-4 font-medium text-slate-600 dark:text-slate-300">Status</th>
                 <th className="text-left py-3 px-4 font-medium text-slate-600 dark:text-slate-300">Last Login</th>
@@ -216,16 +217,12 @@ export default function UsersSettings() {
               {users.map((user) => (
                 <tr key={user.id} className="border-t border-slate-100 dark:border-slate-700">
                   <td className="py-3 px-4">
-                    <div>
-                      <div className="font-medium text-slate-800 dark:text-slate-100">
-                        {user.username}
-                      </div>
-                      {user.email && (
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
-                          {user.email}
-                        </div>
-                      )}
+                    <div className="font-medium text-slate-800 dark:text-slate-100">
+                      {user.username}
                     </div>
+                  </td>
+                  <td className="py-3 px-4 text-slate-500 dark:text-slate-400 text-sm">
+                    {user.email || '—'}
                   </td>
                   <td className="py-3 px-4">
                     <select
