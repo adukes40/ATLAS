@@ -243,48 +243,21 @@ systemctl restart atlastest  # This won't work
 
 ## Authentication Issues
 
-### "Invalid control character" JSON error
+### "Invalid control character" JSON error or Google credential issues
 
-**Symptom:** Login fails with JSON parsing error in logs:
-```
-[Auth] Unexpected error checking group membership: Invalid control character at: line 5 column 1003 (char 1139)
-```
+**Symptom:** Login fails with JSON parsing error in logs, or Google sync/authentication fails.
 
-**Cause:** The `google_credentials.json` file was corrupted during paste. The private key contains `\n` characters that get converted to actual line breaks, breaking the JSON structure.
+**Cause:** Google service account credentials are missing or invalid.
 
-**Why this happens:** When pasting multiline JSON in a terminal, line breaks can be introduced in the middle of the private key string. For example:
-```
-...TwKBg
-  QDDbU...   <-- Line break in the middle of the key!
-```
+**Solution:** Google credentials are now stored encrypted in the database and managed through the Settings UI. To fix credential issues:
 
-**Solution - Use base64 encoding (only reliable method):**
+1. Log in to ATLAS as an admin
+2. Go to **Settings > Google**
+3. Re-paste the entire contents of your service account JSON key file (downloaded from Google Cloud Console)
+4. Click Save
+5. Restart the service: `systemctl restart atlas`
 
-On the source machine (where credentials work):
-```bash
-base64 -w0 /opt/atlas/atlas-backend/google_credentials.json && echo
-```
-
-On the ATLAS server:
-```bash
-echo "PASTE_THE_ENTIRE_BASE64_STRING_HERE" | base64 -d > /opt/atlas/atlas-backend/google_credentials.json
-chmod 600 /opt/atlas/atlas-backend/google_credentials.json
-
-# Verify it's valid JSON
-python3 -c "import json; json.load(open('/opt/atlas/atlas-backend/google_credentials.json')); print('JSON OK')"
-
-# Restart
-systemctl restart atlas
-```
-
-**Alternative - SCP from another machine:**
-```bash
-scp user@source:/path/to/google_credentials.json /opt/atlas/atlas-backend/
-chmod 600 /opt/atlas/atlas-backend/google_credentials.json
-systemctl restart atlas
-```
-
-> **Tip:** The installer now offers base64 as option 1 (recommended) to avoid this issue.
+> **Note:** There is no `google_credentials.json` file on disk. All Google service account credentials are stored encrypted in the database.
 
 ### "Access restricted to members of [group]"
 
@@ -445,26 +418,14 @@ curl -s http://localhost/api/ | head
 
 ### Verify Google Credentials
 
-```bash
-# Check file exists and is readable
-ls -la /opt/atlas/atlas-backend/google_credentials.json
+Google service account credentials are stored encrypted in the database and managed through **Settings > Google** in the ATLAS UI. To verify or update them:
 
-# Validate JSON syntax
-python3 -c "import json; json.load(open('/opt/atlas/atlas-backend/google_credentials.json')); print('JSON is valid')"
+1. Log in to ATLAS as an admin
+2. Go to **Settings > Google**
+3. If credentials are configured, the service account email will be displayed
+4. To re-enter credentials, paste the full JSON key file contents and click Save
 
-# Check it has required fields
-python3 -c "
-import json
-creds = json.load(open('/opt/atlas/atlas-backend/google_credentials.json'))
-required = ['type', 'project_id', 'private_key', 'client_email']
-missing = [f for f in required if f not in creds]
-if missing:
-    print(f'Missing fields: {missing}')
-else:
-    print('All required fields present')
-    print(f'Service account: {creds[\"client_email\"]}')
-"
-```
+> **Note:** There is no `google_credentials.json` file on disk to check. If Google sync or authentication is failing, re-paste the credentials through the Settings UI and restart the service: `systemctl restart atlas`
 
 ### Full System Reset
 
