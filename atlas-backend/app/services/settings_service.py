@@ -31,6 +31,7 @@ ALLOWED_KEYS = {
     "oauth_allowed_domain", "oauth_admin_group", "oauth_user_group",
     # District / Display
     "district_name", "support_email", "schedule_timezone",
+    "location_abbreviations",
     # Branding
     "branding_login_icon", "branding_favicon",
 }
