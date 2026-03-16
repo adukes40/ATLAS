@@ -164,11 +164,7 @@ Create a service account for syncing device and user data:
      ```
 - **Admin Email**: A super admin email for delegation (e.g., `admin@yourdistrict.org`)
 
-> **Important:** When entering credentials during installation, use the **base64 method** (option 1) to avoid JSON corruption. Raw paste can break the private key due to line breaks. To encode your credentials:
-> ```bash
-> base64 -w0 google_credentials.json && echo
-> ```
-> Then paste the single-line output during installation.
+> **Note:** Google service account credentials are configured through the Settings UI after installation. Download the JSON key file from Google Cloud Console, then paste its contents into **Settings > Google** within ATLAS.
 
 #### 3. Google Workspace - OAuth Client (for user authentication)
 Create OAuth credentials for user login:
@@ -266,7 +262,6 @@ IIQ_PRODUCT_ID=your_product_id
 # =============================================================================
 # GOOGLE WORKSPACE API
 # =============================================================================
-GOOGLE_CREDS_PATH=/opt/atlas/atlas-backend/google_credentials.json
 GOOGLE_ADMIN_EMAIL=admin@yourdistrict.org
 
 # =============================================================================
@@ -280,6 +275,10 @@ MERAKI_ORG_ID=your_org_id
 # =============================================================================
 # Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
 SECRET_KEY=your_generated_secret_key
+
+# Fernet key for encrypting secrets in database (must be separate from SECRET_KEY)
+# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+ENCRYPTION_KEY=your_generated_fernet_key
 
 # Domain restriction for Google OAuth
 ALLOWED_DOMAIN=yourdistrict.org
@@ -298,29 +297,17 @@ EOF
 chmod 600 /opt/atlas/atlas-backend/.env
 ```
 
-### Step 7: Copy Google Service Account Credentials
+### Step 7: Configure Google Service Account Credentials
 
-**Option A: Copy from local file**
-```bash
-cp /path/to/your/service-account.json /opt/atlas/atlas-backend/google_credentials.json
-chmod 600 /opt/atlas/atlas-backend/google_credentials.json
-```
+Google service account credentials are stored encrypted in the database and configured through the ATLAS Settings UI after installation.
 
-**Option B: Transfer via base64 (recommended for remote transfers)**
+1. Download the JSON key file from Google Cloud Console (IAM & Admin > Service Accounts > Keys)
+2. Log in to ATLAS as an admin
+3. Go to **Settings > Google**
+4. Paste the entire contents of the JSON key file
+5. Click Save
 
-On the source machine:
-```bash
-base64 -w0 service-account.json && echo
-```
-
-On the ATLAS server:
-```bash
-echo "PASTE_BASE64_HERE" | base64 -d > /opt/atlas/atlas-backend/google_credentials.json
-chmod 600 /opt/atlas/atlas-backend/google_credentials.json
-
-# Verify it's valid JSON
-python3 -c "import json; json.load(open('/opt/atlas/atlas-backend/google_credentials.json')); print('JSON OK')"
-```
+> **Note:** You still need to set `GOOGLE_ADMIN_EMAIL` in your `.env` file (see Step 6). The service account JSON is the only credential managed through the UI.
 
 ### Step 8: Set Up Python Virtual Environment
 ```bash
@@ -518,13 +505,13 @@ tail -f /var/log/nginx/error.log
 Ensure sensitive files are protected:
 ```bash
 chmod 600 /opt/atlas/atlas-backend/.env
-chmod 600 /opt/atlas/atlas-backend/google_credentials.json
 ```
 
 ### Secret Files
 The following files contain sensitive credentials and should NEVER be committed to git:
 - `.env` - API keys, tokens, database credentials
-- `google_credentials.json` - Google service account private key
+
+> **Note:** Google service account credentials are stored encrypted in the database (managed via Settings UI) and are not kept as a file on disk.
 
 ### Authentication Flow
 ATLAS uses Google OAuth 2.0 with group-based authorization:
